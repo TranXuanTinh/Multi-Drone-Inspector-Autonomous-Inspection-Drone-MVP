@@ -95,13 +95,20 @@ conda activate base
 python3 scripts/run_multi_mission.py
 ```
 
-### 4. Run Unit & Formation Tests
+### 4. Run Tests
 
 ```bash
-# Run unit & formation tests
 conda activate base
-python3 -m pytest tests/sitl/test_formation_flight.py tests/sitl/test_offboard_control.py -v
 
-# Run full test suite script
+# Run all 126 unit tests (no SITL required)
+/home/tinhtran/miniconda3/bin/python3 -m pytest tests/unit/ -v
+
+# Run SITL integration tests (requires running PX4 SITL from step 1)
+/home/tinhtran/miniconda3/bin/python3 -m pytest tests/sitl/ -v
+
+# Run full test suite via script
 ./scripts/run_tests.sh
 ```
+
+> **Note**: SITL tests are automatically skipped when PX4 is not running.
+

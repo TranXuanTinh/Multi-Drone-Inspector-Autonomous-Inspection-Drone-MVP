@@ -115,6 +115,9 @@ class TestPatternCamera(CameraSource):
     that simulate detectable objects.
     """
 
+    # Prevent pytest from collecting this as a test class
+    __test__ = False
+
     def __init__(self, width: int = 640, height: int = 480) -> None:
         self._width = width
         self._height = height

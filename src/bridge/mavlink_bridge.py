@@ -113,11 +113,15 @@ class MAVLinkBridge(DroneConnector):
     async def wait_for_ready(self, timeout: float = 60.0) -> None:
         """Wait for vehicle health checks to pass (GPS fix, home position)."""
         logger.info("Waiting for vehicle to be ready...")
-        try:
+
+        async def _wait_healthy():
             async for health in self._drone.telemetry.health():
                 if health.is_global_position_ok and health.is_home_position_ok:
                     logger.info("Vehicle is ready (GPS OK, Home position set)")
                     return
+
+        try:
+            await asyncio.wait_for(_wait_healthy(), timeout=timeout)
         except asyncio.TimeoutError:
             raise TimeoutError(
                 f"Vehicle did not become ready within {timeout}s. "

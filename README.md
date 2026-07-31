@@ -4,6 +4,8 @@
 
 An enterprise-grade autonomous multi-UAV inspection platform built with **PX4 SITL**, **ROS 2 Jazzy (C++)**, **Micro XRCE-DDS**, **Gazebo Harmonic**, computer vision (**YOLOv8 + ByteTrack**), and a real-time operator dashboard. Supports multi-vehicle SITL simulation, offboard position/velocity setpoints, dynamic formation control (Line, V, Circle, Diamond), and reactive collision avoidance.
 
+> **Environment**: Miniconda `base` — all Python dependencies run in the conda base environment (no virtualenv).
+
 ---
 
 ## 🏗️ System Architecture
@@ -187,8 +189,11 @@ MultiDronePX4/
 ```bash
 conda activate base
 
-# Run Python unit & formation tests
-python3 -m pytest tests/sitl/test_formation_flight.py tests/sitl/test_offboard_control.py -v
+# Run all 126 unit tests
+/home/tinhtran/miniconda3/bin/python3 -m pytest tests/unit/ -v
+
+# Run SITL integration tests (requires PX4 SITL running)
+/home/tinhtran/miniconda3/bin/python3 -m pytest tests/sitl/ -v
 
 # Run full test suite via runner script
 ./scripts/run_tests.sh
@@ -197,8 +202,23 @@ python3 -m pytest tests/sitl/test_formation_flight.py tests/sitl/test_offboard_c
 ./scripts/build_ros2.sh --test
 ```
 
+> **Note**: SITL tests are auto-skipped when PX4 is not running. Use `./scripts/launch_sitl.sh` first.
+
 ---
 
 ## 📄 License
 
 MIT
+
+---
+
+## 📝 Changelog
+
+### v0.1.1 — Bug Fixes & Interface Compliance
+- **Fixed**: `ROS2FlightCommands` now fully implements `FlightController` ABC (`rtl()`, `goto()`, `wait_for_altitude()`, `wait_for_landed()`, `wait_for_disarmed()`, `is_offboard_active`)
+- **Fixed**: `offboard_controller.cpp` no longer overwrites `relative_altitude_m` with incorrect `alt_ellipsoid - alt` calculation
+- **Fixed**: `ROS2VehicleBridge.wait_for_ready()` uses `asyncio.get_running_loop()` (was deprecated `get_event_loop()`)
+- **Fixed**: `ROS2VehicleBridge._on_vehicle_status` uses thread-safe asyncio scheduling for telemetry callbacks
+- **Fixed**: `MAVLinkBridge.wait_for_ready()` now enforces its `timeout` parameter via `asyncio.wait_for()`
+- **Fixed**: `TestPatternCamera` no longer triggers `PytestCollectionWarning`
+- **Environment**: Migrated from virtualenv to Miniconda `base`

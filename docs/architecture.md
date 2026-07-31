@@ -16,7 +16,7 @@ The codebase is built on **SOLID principles**, **OOP best practices**, and **GoF
 |:---|:---|
 | **SRP** | C++ `OffboardController` manages single-vehicle state & 50Hz setpoints; `SafetyGuard` enforces safety rules; `FleetCoordinator` owns fleet state machine; `FormationController` computes geometry. |
 | **OCP** | Formation patterns use Strategy pattern (`FormationController::compute_targets`) — adding a new formation requires only a pattern handler. Safety rules use Chain of Responsibility (`SafetyGuard::safety_check_loop`). |
-| **LSP** | `ROS2VehicleBridge` and `MAVLinkBridge` both implement the `DroneConnector` interface and are drop-in substitutable. |
+| **LSP** | `ROS2VehicleBridge` and `MAVLinkBridge` both implement the `DroneConnector` interface; `ROS2FlightCommands` and `FlightCommands` both implement the `FlightController` interface — all are drop-in substitutable. |
 | **ISP** | Focused C++ and Python interfaces: `OffboardControllerInterface` for setpoint stream, `MultiVehicleConnector` for fleet connections. |
 | **DIP** | Python high-level mission manager depends on `DroneConnector` and `FlightController` ABCs, allowing transparent execution over ROS 2 DDS or MAVSDK. |
 

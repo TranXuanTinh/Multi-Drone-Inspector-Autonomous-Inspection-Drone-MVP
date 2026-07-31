@@ -95,8 +95,9 @@ class ROS2VehicleBridge(DroneConnector):
         """Wait until the vehicle controller is publishing status."""
         logger.info(f"[{self._vehicle_id.name}] Waiting for ready...")
 
-        deadline = asyncio.get_event_loop().time() + timeout_s
-        while asyncio.get_event_loop().time() < deadline:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_s
+        while loop.time() < deadline:
             if self._latest_telemetry.is_connected:
                 logger.info(
                     f"[{self._vehicle_id.name}] Vehicle ready "
@@ -207,11 +208,27 @@ class ROS2VehicleBridge(DroneConnector):
             gps_fix_type=msg.gps_fix_type,
         )
 
-        # Invoke callback if registered
+        # Invoke callback if registered (thread-safe: this callback
+        # runs in the ROS 2 executor thread, not the asyncio loop)
         if self._telemetry_callback:
-            asyncio.ensure_future(
-                self._telemetry_callback(self._latest_telemetry)
-            )
+            try:
+                loop = asyncio.get_running_loop()
+                # Already in an asyncio context (SingleThreadedExecutor
+                # running inside asyncio) — use create_task directly
+                loop.create_task(
+                    self._telemetry_callback(self._latest_telemetry)
+                )
+            except RuntimeError:
+                # Called from a non-asyncio thread (MultiThreadedExecutor)
+                # — schedule onto the asyncio event loop safely
+                try:
+                    loop = asyncio.get_event_loop()
+                    asyncio.run_coroutine_threadsafe(
+                        self._telemetry_callback(self._latest_telemetry),
+                        loop,
+                    )
+                except RuntimeError:
+                    pass  # No event loop available; drop callback
 
     # ── Command Methods ──────────────────────────────────────
 

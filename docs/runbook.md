@@ -70,3 +70,38 @@ safety:
   min_battery_pct: 20.0          # Low battery RTL threshold
   critical_battery_pct: 10.0     # Critical battery land threshold
 ```
+
+---
+
+## Troubleshooting
+
+### Common Issues
+
+| Symptom | Cause | Fix |
+|:---|:---|:---|
+| `ModuleNotFoundError: No module named 'transitions'` | System Python used instead of miniconda | Use `/home/tinhtran/miniconda3/bin/python3` or `conda activate base` |
+| `PytestCollectionWarning: cannot collect test class 'TestPatternCamera'` | Class name starts with `Test` | Fixed in v0.1.1 — `__test__ = False` added to `TestPatternCamera` |
+| `DeprecationWarning: There is no current event loop` | `asyncio.get_event_loop()` used in Python ≥ 3.10 | Fixed in v0.1.1 — `ROS2VehicleBridge` uses `asyncio.get_running_loop()` |
+| `MAVLinkBridge.wait_for_ready()` hangs forever | Timeout parameter was not enforced | Fixed in v0.1.1 — wrapped with `asyncio.wait_for()` |
+| `ROS2FlightCommands` crashes as `FlightController` | Missing ABC methods (`rtl`, `goto`, `wait_for_*`) | Fixed in v0.1.1 — full ABC compliance |
+| Incorrect `relative_altitude_m` in vehicle status | `on_global_position()` was overwriting with wrong calculation | Fixed in v0.1.1 — only `on_local_position()` sets relative altitude |
+
+### Diagnostic Commands
+
+```bash
+# Check if PX4 SITL is running
+ss -ulnp | grep 14540
+
+# Check XRCE-DDS Agent
+ss -ulnp | grep 8888
+
+# Check ROS 2 topics
+ros2 topic list | grep fleet
+
+# Monitor vehicle status
+ros2 topic echo /fleet/vehicle_status
+
+# Monitor fleet status
+ros2 topic echo /fleet/fleet_status
+```
+

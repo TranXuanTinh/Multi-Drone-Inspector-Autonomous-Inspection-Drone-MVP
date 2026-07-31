@@ -315,7 +315,8 @@ void OffboardController::on_global_position(
   state_.latitude_deg = msg->lat;
   state_.longitude_deg = msg->lon;
   state_.absolute_altitude_m = msg->alt;
-  state_.relative_altitude_m = msg->alt_ellipsoid - msg->alt;
+  // NOTE: relative_altitude_m is set by on_local_position() (-z in NED)
+  // which is the correct altitude AGL. Do NOT overwrite it here.
 }
 
 void OffboardController::on_battery_status(
