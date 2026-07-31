@@ -1,10 +1,10 @@
-# Architecture — Drone Inspector MVP
+# Architecture — Multi-UAV Autonomous Inspection Platform
 
 ## System Overview
 
-The Drone Inspector is a simulation-only autonomous inspection drone system built on **PX4 SITL**, **Gazebo Harmonic**, and **ROS 2 Jazzy**. It demonstrates end-to-end autonomous mission execution with computer vision, from takeoff through waypoint navigation, object detection, and return-to-launch.
+The **Multi-UAV Inspector** is a enterprise multi-vehicle simulation foundation built on **PX4 SITL**, **ROS 2 Jazzy (C++)**, **Micro XRCE-DDS**, and **Gazebo Harmonic**. It provides a scalable architecture for multi-vehicle inspection missions, offboard control, formation flight, and reactive inter-vehicle collision avoidance.
 
-The codebase is structured around **SOLID principles**, **OOP best practices**, and **GoF design patterns** to maximize testability, extensibility, and maintainability.
+The codebase is built on **SOLID principles**, **OOP best practices**, and **GoF design patterns** to achieve modularity between the low-level C++ vehicle controllers, the fleet manager, and the Python-side perception and dashboard stack.
 
 ---
 
@@ -13,424 +13,197 @@ The codebase is structured around **SOLID principles**, **OOP best practices**, 
 ### SOLID Principles
 
 | Principle | Implementation |
-|-----------|---------------|
-| **SRP** | Each module has one responsibility. State machine owns transitions; `MissionExecutor` owns behavior. Dashboard `main.py` is a thin shell; endpoints live in `routers/`. |
-| **OCP** | Search patterns use Strategy pattern — new patterns require only a new class. Safety rules use Chain of Responsibility — new rules are added without editing existing code. |
-| **LSP** | Camera implementations (`GstreamerCamera`, `VideoFileCamera`, `TestPatternCamera`) are all substitutable through the `CameraSource` ABC. |
-| **ISP** | Interfaces are focused: `ObjectDetector` has only `load()` and `detect()`. `SafetyRule` has only `evaluate()`. No consumer is forced to depend on methods it doesn't use. |
-| **DIP** | All consumers depend on abstract interfaces (`DroneConnector`, `FlightController`, `CameraSource`, etc.), never on concrete classes. |
+|:---|:---|
+| **SRP** | C++ `OffboardController` manages single-vehicle state & 50Hz setpoints; `SafetyGuard` enforces safety rules; `FleetCoordinator` owns fleet state machine; `FormationController` computes geometry. |
+| **OCP** | Formation patterns use Strategy pattern (`FormationController::compute_targets`) — adding a new formation requires only a pattern handler. Safety rules use Chain of Responsibility (`SafetyGuard::safety_check_loop`). |
+| **LSP** | `ROS2VehicleBridge` and `MAVLinkBridge` both implement the `DroneConnector` interface and are drop-in substitutable. |
+| **ISP** | Focused C++ and Python interfaces: `OffboardControllerInterface` for setpoint stream, `MultiVehicleConnector` for fleet connections. |
+| **DIP** | Python high-level mission manager depends on `DroneConnector` and `FlightController` ABCs, allowing transparent execution over ROS 2 DDS or MAVSDK. |
 
 ### Design Patterns
 
 | Pattern | Where | Purpose |
-|---------|-------|---------|
-| **Strategy** | `SearchPatternStrategy` → `LawnmowerPattern`, `ExpandingSquarePattern`, `CustomWaypointsPattern` | Pluggable search patterns without if/elif chains |
-| **Observer** | `EventBus` with `TelemetryEvent`, `DetectionFoundEvent`, `StateChangeEvent` | Decoupled pub/sub for telemetry, detections, and state changes |
-| **Chain of Responsibility** | `SafetyRule` → `BatteryRule`, `GeofenceRule`, `AltitudeRule`, `ConnectionRule` | Composable safety checks; new rules added by appending |
-| **Factory** | `CameraFactory`, `AppFactory`, `SafetyMonitor.from_config()` | Config-driven object construction |
-| **State Machine** | `MissionStateMachine` (via `transitions` library) | Declarative state/transition management |
-| **Template Method** | `MissionExecutor.do_xxx()` handlers | Consistent state handler contract |
-| **Registry** | `PatternRegistry` | Auto-discovery of search pattern strategies |
+|:---|:---|:---|
+| **Strategy** | `FormationController` (`line`, `v_formation`, `circle`, `diamond`) | Pluggable formation geometries computed relative to fleet leader |
+| **Observer** | ROS 2 pub/sub + Python `EventBus` | Decoupled telemetry (`/fleet/vehicle_status`), commands (`/fleet/mission_command`), and events |
+| **Chain of Responsibility** | `SafetyGuard` in C++ / `SafetyMonitor` in Python | Cascading safety checks (battery, geofence, altitude, separation) |
+| **Factory** | ROS 2 `full_system.launch.py` / Python `AppFactory` | Config-driven dynamic vehicle node generation |
+| **State Machine** | `FleetCoordinator` (C++) & `MissionStateMachine` (Python) | Multi-vehicle fleet state transitions: `IDLE → FORMING → IN_FORMATION → EXECUTING → RTL_ALL` |
+| **Potential Field** | `CollisionAvoidance` | Reactive velocity obstacles with priority-based right-of-way resolution |
 
 ---
 
-## Module Dependency Graph
+## System Component Topology
 
 ```mermaid
 graph TB
-    subgraph "Core Layer"
-        types["core/types.py<br/>DTOs & Enums"]
-        interfaces["core/interfaces.py<br/>ABCs"]
-        geo["core/geo.py<br/>GPS Math"]
-        events["core/events.py<br/>EventBus"]
+    subgraph Gazebo["🎮 Gazebo Harmonic Simulation"]
+        GZWorld[multi_vehicle_empty.sdf]
     end
 
-    subgraph "Bridge Layer"
-        bridge["bridge/mavlink_bridge.py<br/>MAVLinkBridge"]
-        commands["bridge/commands.py<br/>FlightCommands"]
-        telemetry["bridge/telemetry.py<br/>TelemetryCollector"]
+    subgraph PX4["✈️ PX4 SITL Multi-Instance"]
+        PX4_0[PX4 Instance 0<br/>SysID=1]
+        PX4_1[PX4 Instance 1<br/>SysID=2]
+        PX4_2[PX4 Instance 2<br/>SysID=3]
     end
 
-    subgraph "Perception Layer"
-        camera["perception/camera.py<br/>CameraFactory + 3 impls"]
-        detector["perception/detector.py<br/>YOLODetector"]
-        tracker["perception/tracker.py<br/>ByteTrackWrapper"]
-        geotag["perception/geotagging.py<br/>GPSGeotagger"]
+    subgraph XRCE["🌉 Micro XRCE-DDS"]
+        Agent[MicroXRCEAgent<br/>UDP 8888]
     end
 
-    subgraph "Mission Layer"
-        safety["mission/safety.py<br/>SafetyMonitor + Rules"]
-        planner["mission/waypoint_planner.py<br/>PatternRegistry"]
-        executor["mission/executor.py<br/>MissionExecutor"]
-        sm["mission/state_machine.py<br/>MissionStateMachine"]
+    subgraph ROS2_Vehicles["🤖 Vehicle Controller Nodes (C++)"]
+        subgraph NS0["/px4_0"]
+            OC0[OffboardController]
+            SG0[SafetyGuard]
+        end
+        subgraph NS1["/px4_1"]
+            OC1[OffboardController]
+            SG1[SafetyGuard]
+        end
+        subgraph NS2["/px4_2"]
+            OC2[OffboardController]
+            SG2[SafetyGuard]
+        end
     end
 
-    subgraph "Dashboard"
-        app["dashboard/main.py<br/>FastAPI App"]
-        deps["dashboard/dependencies.py<br/>AppContainer"]
-        routers["dashboard/routers/<br/>5 router modules"]
+    subgraph ROS2_Fleet["👑 Fleet Manager Node (C++)"]
+        FC[FleetCoordinator]
+        FM[FormationController]
+        CA[CollisionAvoidance]
     end
 
-    subgraph "Streaming"
-        overlay["streaming/overlay.py"]
-        video["streaming/video_server.py"]
+    subgraph Python["🐍 Python Layer"]
+        FMgr[FleetManager]
+        Bridge[ROS2VehicleBridge]
+        Dash[FastAPI + React Dashboard]
     end
 
-    factory["factory.py<br/>AppFactory"]
-
-    %% Core dependencies
-    bridge --> interfaces
-    bridge --> types
-    commands --> interfaces
-    commands --> bridge
-    telemetry --> interfaces
-    telemetry --> events
-
-    camera --> interfaces
-    detector --> interfaces
-    detector --> types
-    tracker --> interfaces
-    tracker --> types
-    geotag --> interfaces
-    geotag --> geo
-
-    safety --> interfaces
-    safety --> geo
-    planner --> interfaces
-    planner --> geo
-    executor --> interfaces
-    executor --> geo
-    sm --> executor
-
-    video --> interfaces
-    video --> types
-    overlay --> types
-
-    app --> factory
-    app --> routers
-    routers --> deps
-    factory --> bridge
-    factory --> commands
-    factory --> camera
-    factory --> detector
-    factory --> tracker
-    factory --> geotag
-    factory --> safety
-    factory --> sm
+    PX4_0 & PX4_1 & PX4_2 <--> GZWorld
+    PX4_0 & PX4_1 & PX4_2 <--> Agent
+    Agent <--> OC0 & OC1 & OC2
+    OC0 & OC1 & OC2 -- "/fleet/vehicle_status" --> FC
+    FC -- "/fleet/mission_command" --> OC0 & OC1 & OC2
+    FC --> FM & CA
+    FC -- ROS 2 DDS --> Bridge
+    Bridge --> FMgr --> Dash
 ```
 
 ---
 
-## Class Hierarchy (UML)
+## ROS 2 Workspace Structure (`ros2_ws/`)
 
-```mermaid
-classDiagram
-    class DroneConnector {
-        <<interface>>
-        +connect()
-        +disconnect()
-        +wait_for_ready()
-        +is_connected: bool
-        +latest_telemetry: TelemetryFrame
-        +start_telemetry_stream()
-        +stop_telemetry_stream()
-    }
-    class MAVLinkBridge {
-        +drone: System
-        +__aenter__()
-        +__aexit__()
-    }
-    DroneConnector <|-- MAVLinkBridge
-
-    class FlightController {
-        <<interface>>
-        +arm()
-        +disarm()
-        +takeoff()
-        +land()
-        +rtl()
-        +goto()
-        +hold()
-    }
-    class FlightCommands {
-        +start_offboard()
-        +send_velocity_ned()
-    }
-    FlightController <|-- FlightCommands
-
-    class CameraSource {
-        <<interface>>
-        +open(): bool
-        +get_frame(): ndarray
-        +release()
-        +frame_count: int
-    }
-    class GstreamerCamera
-    class VideoFileCamera
-    class TestPatternCamera
-    CameraSource <|-- GstreamerCamera
-    CameraSource <|-- VideoFileCamera
-    CameraSource <|-- TestPatternCamera
-
-    class ObjectDetector {
-        <<interface>>
-        +load()
-        +detect(frame): List~Detection~
-        +avg_inference_ms: float
-    }
-    class YOLODetector
-    ObjectDetector <|-- YOLODetector
-
-    class ObjectTracker {
-        <<interface>>
-        +update(detections): List~Track~
-        +reset()
-    }
-    class ByteTrackWrapper
-    ObjectTracker <|-- ByteTrackWrapper
-
-    class SearchPatternStrategy {
-        <<interface>>
-        +name: str
-        +generate(config): List~Waypoint~
-    }
-    class LawnmowerPattern
-    class ExpandingSquarePattern
-    class CustomWaypointsPattern
-    SearchPatternStrategy <|-- LawnmowerPattern
-    SearchPatternStrategy <|-- ExpandingSquarePattern
-    SearchPatternStrategy <|-- CustomWaypointsPattern
-
-    class SafetyRule {
-        <<interface>>
-        +name: str
-        +evaluate(telemetry): SafetyAction
-    }
-    class BatteryRule
-    class GeofenceRule
-    class AltitudeRule
-    class ConnectionRule
-    SafetyRule <|-- BatteryRule
-    SafetyRule <|-- GeofenceRule
-    SafetyRule <|-- AltitudeRule
-    SafetyRule <|-- ConnectionRule
-
-    class SafetyChecker {
-        <<interface>>
-        +check(telemetry): SafetyAction
-        +add_rule(rule)
-    }
-    class SafetyMonitor {
-        +from_config(): SafetyMonitor
-    }
-    SafetyChecker <|-- SafetyMonitor
-    SafetyMonitor o-- SafetyRule
+```
+ros2_ws/src/
+├── multi_drone_msgs/                    # ROS 2 Interfaces Package
+│   ├── msg/
+│   │   ├── VehicleStatus.msg            # Per-vehicle telemetry & status
+│   │   ├── FleetStatus.msg              # Aggregated fleet telemetry & state
+│   │   ├── FormationCommand.msg          # Formation change requests
+│   │   └── MissionCommand.msg            # High-level control commands
+│   └── srv/
+│       ├── RegisterVehicle.srv          # Vehicle registration service
+│       └── AssignMission.srv            # Per-vehicle mission assignment
+│
+├── vehicle_controller/                  # Per-Vehicle C++ Control Package
+│   ├── include/vehicle_controller/
+│   │   ├── offboard_controller.hpp      # 50Hz setpoint publisher & PX4 cmd bridge
+│   │   ├── safety_guard.hpp             # Configurable geofence & separation guard
+│   │   └── telemetry_monitor.hpp        # Standalone telemetry monitor
+│   ├── src/
+│   │   ├── offboard_controller.cpp
+│   │   ├── safety_guard.cpp
+│   │   └── telemetry_monitor.cpp
+│   └── launch/
+│       └── vehicle.launch.py            # Single vehicle launch
+│
+├── fleet_manager/                       # Fleet Coordination C++ Package
+│   ├── include/fleet_manager/
+│   │   ├── fleet_coordinator.hpp        # Central state machine & command dispatcher
+│   │   ├── formation_controller.hpp     # Geometry generator (Line, V, Circle, Diamond)
+│   │   └── collision_avoidance.hpp      # Potential field collision avoidance
+│   ├── src/
+│   │   ├── fleet_coordinator.cpp
+│   │   ├── formation_controller.cpp
+│   │   └── collision_avoidance.cpp
+│   └── launch/
+│       └── fleet.launch.py              # Fleet coordinator launch
+│
+└── multi_drone_bringup/                 # System Launch Package
+    └── launch/
+        └── full_system.launch.py        # System bringup (N vehicles + coordinator)
 ```
 
 ---
 
-## Mission State Machine
+## Multi-Vehicle Fleet State Machine
 
 ```mermaid
 stateDiagram-v2
     [*] --> IDLE
-    IDLE --> PREFLIGHT : start_mission
-    PREFLIGHT --> TAKEOFF : checks_pass
-    PREFLIGHT --> IDLE : checks_fail
-    TAKEOFF --> SEARCH : altitude_reached
-    SEARCH --> DETECT : object_detected
-    SEARCH --> RTL : search_complete
-    DETECT --> INSPECT : detection_confirmed
-    DETECT --> SEARCH : false_positive
-    INSPECT --> LOG : inspection_done
-    LOG --> SEARCH : more_waypoints
-    LOG --> RTL : mission_complete
-    RTL --> LANDED : touchdown
-    LANDED --> IDLE : disarmed
-
-    PREFLIGHT --> ABORT : abort
-    TAKEOFF --> ABORT : abort
-    SEARCH --> ABORT : abort
-    DETECT --> ABORT : abort
-    INSPECT --> ABORT : abort
-    LOG --> ABORT : abort
-    ABORT --> RTL : abort_rtl
-
-    TAKEOFF --> RTL : safety_rtl
-    SEARCH --> RTL : safety_rtl
-    DETECT --> RTL : safety_rtl
-    INSPECT --> RTL : safety_rtl
-    LOG --> RTL : safety_rtl
+    IDLE --> FORMING : set_formation
+    FORMING --> IN_FORMATION : all_vehicles_in_position
+    IN_FORMATION --> EXECUTING : start_mission
+    EXECUTING --> FORMING : update_formation
+    EXECUTING --> SCATTERING : collision_risk
+    SCATTERING --> FORMING : safe_distance_restored
+    EXECUTING --> RTL_ALL : mission_complete / safety_trigger
+    FORMING --> RTL_ALL : safety_trigger
+    IN_FORMATION --> RTL_ALL : safety_trigger
+    RTL_ALL --> IDLE : all_landed
 ```
 
 ---
 
-## Perception Pipeline
+## Offboard Control Loop (50 Hz)
 
 ```mermaid
 sequenceDiagram
-    participant Camera as CameraSource
-    participant Det as YOLODetector
-    participant Track as ByteTrackWrapper
-    participant Geo as GPSGeotagger
-    participant SM as StateMachine
-    participant Bus as EventBus
+    participant PX4 as PX4 SITL (XRCE)
+    participant OC as OffboardController Node
+    participant FC as FleetCoordinator Node
+    participant SG as SafetyGuard Node
 
-    loop Every frame (SEARCH state)
-        SM->>Camera: get_frame()
-        Camera-->>SM: BGR frame
-        SM->>Det: detect(frame)
-        Det-->>SM: List[Detection]
-        SM->>Track: update(detections)
-        Track-->>SM: List[Track]
-        alt Confirmed tracks found
-            SM->>Geo: tag_detections(tracks, gps, heading)
-            Geo-->>SM: List[GeotaggedDetection]
-            SM->>SM: object_detected → DETECT
-            SM->>Bus: publish(DetectionFoundEvent)
-        end
+    loop Every 20ms (50Hz)
+        OC->>PX4: OffboardControlMode (position=true)
+        OC->>PX4: TrajectorySetpoint (x, y, z, yaw)
+    end
+
+    PX4-->>OC: VehicleLocalPosition / BatteryStatus / VehicleStatus
+    OC-->>FC: VehicleStatus (/fleet/vehicle_status)
+    OC-->>SG: VehicleStatus (/fleet/vehicle_status)
+
+    alt Safety breach detected by SafetyGuard
+        SG->>PX4: VehicleCommand (NAV_RETURN_TO_LAUNCH)
+    end
+
+    alt Formation target updated by FleetCoordinator
+        FC-->>OC: MissionCommand (CMD_GOTO)
+        OC->>OC: Update Target Setpoint
     end
 ```
 
 ---
 
-## Dashboard Architecture
+## Formation Patterns
 
-```mermaid
-graph LR
-    subgraph "Frontend (React + Vite)"
-        UI["App.jsx"]
-        SB["StatusBar"]
-        VF["VideoFeed"]
-        DM["DroneMap"]
-        DL["DetectionLog"]
-        TP["TelemetryPanel"]
-        MC["MissionControl"]
-    end
-
-    subgraph "Backend (FastAPI)"
-        R1["routers/mission.py"]
-        R2["routers/telemetry.py"]
-        R3["routers/detections.py"]
-        R4["routers/video.py"]
-        R5["routers/reports.py"]
-        DC["dependencies.py<br/>AppContainer"]
-    end
-
-    UI --> SB
-    UI --> VF
-    UI --> DM
-    UI --> DL
-    UI --> TP
-    UI --> MC
-
-    MC -- "POST /api/mission/*" --> R1
-    TP -- "WS /ws/telemetry" --> R2
-    DL -- "WS /ws/detections" --> R3
-    VF -- "WS /ws/video" --> R4
-    MC -- "GET /api/report/*" --> R5
-
-    R1 --> DC
-    R2 --> DC
-    R3 --> DC
-    R4 --> DC
-    R5 --> DC
-```
+| Pattern | Description | Math Formulation |
+|:---|:---|:---|
+| **Line** | Vehicles aligned perpendicular to heading | $P_i = P_{leader} + \text{rank}_i \cdot \text{spacing} \cdot [\sin(\psi), \cos(\psi), 0]^T$ |
+| **V-Formation** | Apex leader with symmetric trailing wings | $P_i = P_{leader} - \text{rank}_i \cdot \text{spacing} \cdot [\cos(\alpha)\cos(\psi), \cos(\alpha)\sin(\psi), 0]^T + \text{side}_i \cdot \dots$ |
+| **Circle** | Radius-based radial distribution facing center | $P_i = P_{center} + R \cdot [\cos(\theta_i), \sin(\theta_i), 0]^T, \quad \theta_i = \frac{2\pi i}{N}$ |
+| **Diamond** | Box/Diamond layout with leader front, wings, tail | Offsets: $(0,0), (-s, -0.7s), (-s, 0.7s), (-2s, 0)$ |
 
 ---
 
-## Directory Structure
+## Inter-Vehicle Collision Avoidance
 
-```
-DronePX4/
-├── src/
-│   ├── core/                    # Foundation layer
-│   │   ├── types.py             #   DTOs: Position, TelemetryFrame, Detection, etc.
-│   │   ├── interfaces.py        #   ABCs: DroneConnector, FlightController, etc.
-│   │   ├── geo.py               #   GPS math: haversine, offset_gps
-│   │   └── events.py            #   EventBus (Observer pattern)
-│   ├── bridge/                  # PX4 communication
-│   │   ├── mavlink_bridge.py    #   DroneConnector impl (MAVSDK)
-│   │   ├── commands.py          #   FlightController impl
-│   │   └── telemetry.py         #   TelemetryCollector
-│   ├── perception/              # Computer vision
-│   │   ├── camera.py            #   CameraSource impls + CameraFactory
-│   │   ├── detector.py          #   ObjectDetector impl (YOLOv8)
-│   │   ├── tracker.py           #   ObjectTracker impl (ByteTrack)
-│   │   └── geotagging.py        #   Geotagger impl
-│   ├── mission/                 # Autonomy
-│   │   ├── state_machine.py     #   MissionStateMachine (transitions)
-│   │   ├── executor.py          #   MissionExecutor (state handlers)
-│   │   ├── safety.py            #   SafetyMonitor + Rules (CoR)
-│   │   └── waypoint_planner.py  #   PatternRegistry + Strategies
-│   ├── streaming/               # Video output
-│   │   ├── video_server.py      #   WebSocket MJPEG server
-│   │   └── overlay.py           #   Detection overlay renderer
-│   ├── dashboard/               # Operator UI
-│   │   ├── backend/
-│   │   │   ├── main.py          #   FastAPI app (slim)
-│   │   │   ├── dependencies.py  #   AppContainer (typed DI)
-│   │   │   ├── routers/         #   5 endpoint modules
-│   │   │   ├── models/          #   Pydantic schemas
-│   │   │   └── api/             #   Report generators
-│   │   └── frontend/            #   React + Vite
-│   ├── factory.py               # AppFactory (central wiring)
-│   └── utils/                   # Config & logging
-├── tests/unit/                  # 66 unit tests
-├── config/                      # YAML config, Gazebo worlds
-├── docs/                        # Documentation
-├── scripts/                     # Launch & test scripts
-└── docker/                      # Docker compose
-```
+The `CollisionAvoidance` module computes reactive velocity adjustments using a potential field method:
 
----
+$$V_{safe} = V_{desired} + \sum_{j \neq i} V_{repulsive, j}$$
 
-## Key Data Flow
+Where the repulsive velocity magnitude scales inversely with distance:
 
-1. **Telemetry**: PX4 SITL → MAVSDK → `MAVLinkBridge` → `TelemetryCollector` → `EventBus` → Dashboard WS
-2. **Perception**: `CameraSource` → `YOLODetector` → `ByteTrackWrapper` → `GPSGeotagger` → `MissionExecutor`
-3. **Commands**: Dashboard → `FlightController` → MAVSDK → PX4 SITL
-4. **Safety**: `TelemetryFrame` → `SafetyMonitor` → `[BatteryRule, GeofenceRule, ...]` → `max(actions)` → State Machine
+$$V_{repulsive, j} = \left( \frac{d_{min}^2}{d_j^2} \right) \cdot \hat{r}_{ij} \cdot \text{priority\_scale}$$
 
----
-
-## Extending the System
-
-### Add a New Search Pattern
-```python
-# 1. Create a new strategy class
-class SpiralPattern(SearchPatternStrategy):
-    @property
-    def name(self) -> str: return "spiral"
-    def generate(self, config: dict) -> List[Waypoint]: ...
-
-# 2. Register it
-PatternRegistry.register(SpiralPattern())
-# Done — no existing code changes needed (OCP)
-```
-
-### Add a New Safety Rule
-```python
-# 1. Create a new rule
-class WindSpeedRule(SafetyRule):
-    @property
-    def name(self) -> str: return "wind_speed"
-    def evaluate(self, telemetry: TelemetryFrame) -> SafetyAction: ...
-
-# 2. Add to monitor
-monitor.add_rule(WindSpeedRule(max_wind_ms=15))
-# Done — no existing code changes needed (OCP)
-```
-
-### Swap Detector Backend
-```python
-# Implement the ObjectDetector interface
-class TensorRTDetector(ObjectDetector):
-    def load(self) -> None: ...
-    def detect(self, frame: np.ndarray) -> List[Detection]: ...
-    @property
-    def avg_inference_ms(self) -> float: ...
-
-# Pass to state machine — no other code changes (DIP)
-sm = MissionStateMachine(detector=TensorRTDetector(), ...)
-```
+- Priority is determined by Vehicle ID (lower vehicle ID has right of way).
+- Critical separation violation ($d < 0.5 \cdot d_{min}$) triggers an emergency stop / hold.

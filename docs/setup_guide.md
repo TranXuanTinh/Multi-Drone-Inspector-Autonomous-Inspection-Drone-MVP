@@ -1,52 +1,35 @@
-# Setup Guide
+# Setup Guide — Multi-UAV Platform
 
-Complete setup instructions for running the Drone Inspector simulation.
+Complete setup instructions for running the Multi-UAV Drone Inspector simulation platform.
 
 ## Prerequisites
 
 | Requirement | Version | Check Command |
-|-------------|---------|---------------|
-| **Ubuntu** | 22.04 LTS | `lsb_release -a` |
-| **Python** | ≥ 3.10 | `python3 --version` |
-| **Git** | any | `git --version` |
-| **cmake** | ≥ 3.16 | `cmake --version` |
+|:---|:---|:---|
+| **Ubuntu** | 22.04 LTS / 24.04 LTS | `lsb_release -a` |
+| **ROS 2** | Jazzy Jalisco | `ros2 --version` |
+| **Python** | ≥ 3.10 (Miniconda `base`) | `python3 --version` |
+| **Git** | Any | `git --version` |
+| **CMake** | ≥ 3.22 | `cmake --version` |
 | **Node.js** | ≥ 18 (for dashboard) | `node --version` |
-
-**Optional:**
-- GPU with CUDA for faster YOLOv8 inference (CPU works fine for simulation)
-- QGroundControl for visual telemetry monitoring
 
 ---
 
 ## Method A: Automated Setup (Recommended)
 
 ```bash
-# Clone the repository
-git clone <repo-url> DronePX4
-cd DronePX4
+# 1. Activate Miniconda base environment
+conda activate base
 
-# Run the setup script (installs everything)
+# 2. Run system setup script (installs PX4, Gazebo Harmonic, Node.js, and deps)
 chmod +x scripts/setup_env.sh
 ./scripts/setup_env.sh
-```
 
-The setup script installs:
-1. System build dependencies (`cmake`, `build-essential`, etc.)
-2. PX4-Autopilot source (cloned to `~/PX4-Autopilot`)
-3. Gazebo Harmonic simulator (via PX4's `ubuntu.sh`)
-4. Python virtual environment with all pip dependencies
-5. Node.js 20 LTS (for the dashboard)
-6. Project data directories
+# 3. Install Python dependencies into Conda base
+pip install -r requirements.txt
 
-> **Note**: The first run may take **15-30 minutes** depending on your internet speed. PX4 compilation takes time.
-
-After setup:
-```bash
-# You may need to reboot for user group changes
-sudo reboot
-
-# Activate the miniconda base environment
-conda activate base
+# 4. Build ROS 2 workspace (C++ vehicle_controller & fleet_manager)
+./scripts/build_ros2.sh
 ```
 
 ---
@@ -56,163 +39,69 @@ conda activate base
 ```bash
 cd docker
 
-# Build and start all services
-docker compose up --build
-
-# Or in detached mode
+# Build and start all multi-vehicle services
 docker compose up -d --build
 ```
 
-Services:
-- **px4-sitl**: PX4 SITL + Gazebo (ports 14540, 14550)
-- **dashboard-backend**: FastAPI (port 8000)
-- **dashboard-frontend**: React (port 3000)
+Services launched:
+- `px4-sitl-0`, `px4-sitl-1`, `px4-sitl-2`: 3 independent PX4 SITL instances
+- `xrce-agent`: Micro XRCE-DDS Agent (port 8888)
+- `ros2-nodes`: C++ ROS 2 `offboard_controller`, `safety_guard`, `fleet_coordinator`
+- `dashboard`: FastAPI Backend (port 8000)
 
 ---
 
-## Method C: Manual Setup
+## Method C: Manual Setup & ROS 2 Build
 
-### 1. Install PX4 Autopilot
-
-```bash
-# Clone PX4
-git clone https://github.com/PX4/PX4-Autopilot.git --recursive ~/PX4-Autopilot
-
-# Install dependencies (includes Gazebo)
-cd ~/PX4-Autopilot
-bash ./Tools/setup/ubuntu.sh --no-nuttx
-
-# Build SITL (first build takes ~10 min)
-make px4_sitl gz_x500
-# Ctrl+C once it's running to verify the build works
-```
-
-### 2. Install Python Dependencies
+### 1. Build ROS 2 Workspace
 
 ```bash
-cd /path/to/DronePX4
+# Source ROS 2 Jazzy
+source /opt/ros/jazzy/setup.bash
 
-# Activate miniconda base environment
-conda activate base
+# Build C++ packages using the helper script
+./scripts/build_ros2.sh
 
-# Install dependencies into base
-pip install -r requirements.txt
-```
-
-### 3. Install Node.js (for dashboard)
-
-```bash
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt install -y nodejs
-
-# Install frontend dependencies
-cd src/dashboard/frontend
-npm install
+# Or directly with colcon:
+cd ros2_ws
+colcon build --symlink-install --packages-up-to multi_drone_bringup
+source install/setup.bash
 ```
 
 ---
 
-## Verify Installation
+## Verification & Execution
 
-### 1. Test PX4 SITL Launches
+### 1. Launch Multi-Instance PX4 SITL & XRCE Agent
 
 ```bash
-# Terminal 1: Launch SITL
-./scripts/launch_sitl.sh
-
-# You should see Gazebo open with a quadcopter
-# PX4 console should print "Ready for takeoff!"
-# Press Ctrl+C to stop
+# Terminal 1: Launch 3 PX4 SITL instances + Micro XRCE-DDS agent
+./scripts/launch_multi_sitl.sh --num 3 --xrce
 ```
 
-### 2. Run Unit Tests
+### 2. Launch ROS 2 Nodes
 
 ```bash
+# Terminal 2: Source workspace and launch vehicle controllers + fleet manager
+source ros2_ws/install/setup.bash
+ros2 launch multi_drone_bringup full_system.launch.py num_vehicles:=3
+```
+
+### 3. Run Coordinated Multi-Vehicle Mission
+
+```bash
+# Terminal 3: Execute multi-vehicle mission
 conda activate base
-python3 -m pytest tests/ -v
+python3 scripts/run_multi_mission.py
 ```
 
-### 3. Test Mission (Headless)
+### 4. Run Unit & Formation Tests
 
 ```bash
-# Terminal 1: Launch SITL
-./scripts/launch_sitl.sh
-
-# Terminal 2: Run mission
+# Run unit & formation tests
 conda activate base
-python3 scripts/run_mission.py
+python3 -m pytest tests/sitl/test_formation_flight.py tests/sitl/test_offboard_control.py -v
+
+# Run full test suite script
+./scripts/run_tests.sh
 ```
-
-### 4. Test Dashboard
-
-```bash
-# Terminal 1: PX4 SITL
-./scripts/launch_sitl.sh
-
-# Terminal 2: Backend
-conda activate base
-cd src/dashboard/backend
-uvicorn main:app --reload --port 8000
-
-# Terminal 3: Frontend
-cd src/dashboard/frontend
-npm run dev
-
-# Open http://localhost:3000
-# Use the ▶ Start Mission button to begin an autonomous inspection
-```
-
----
-
-## Common Issues
-
-### PX4 build fails with "Ninja not found"
-
-```bash
-sudo apt install ninja-build
-```
-
-### Gazebo doesn't open (headless server)
-
-```bash
-# Run in headless mode
-./scripts/launch_sitl.sh --headless
-```
-
-### Python import errors
-
-```bash
-# Make sure miniconda base environment is activated
-conda activate base
-
-# Make sure you're in the project root
-cd /path/to/DronePX4
-```
-
-### MAVSDK connection timeout
-
-Ensure PX4 SITL is running before starting the backend. The SITL process needs 10–15 seconds to initialize GPS simulation.
-
-If you restart the backend (`uvicorn --reload`) while SITL is running, an orphaned `mavsdk_server` process may hold port 50051. The backend auto-kills it, but if the issue persists:
-```bash
-fuser -k 50051/tcp
-```
-
-### Port 14540 already in use
-
-```bash
-# Kill any existing PX4 processes
-pkill -f px4
-pkill -f gz
-```
-
----
-
-## Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PX4_HOME` | `~/PX4-Autopilot` | PX4 source directory |
-| `HEADLESS` | `0` | Set to `1` for no-GUI mode |
-| `PX4_GZ_WORLD` | (default) | Custom Gazebo world name |
-| `GZ_SIM_RESOURCE_PATH` | (auto) | Gazebo model search path |

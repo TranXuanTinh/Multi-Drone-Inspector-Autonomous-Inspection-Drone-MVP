@@ -1,18 +1,16 @@
-# Runbook — Operating the Drone Inspector Simulation
+# Runbook — Operating the Multi-UAV Inspection Platform
 
 ## Quick Reference
 
 | Action | Command |
-|--------|---------|
-| Start SITL | `./scripts/launch_sitl.sh` |
-| Start SITL (headless) | `./scripts/launch_sitl.sh --headless` |
-| Run mission (CLI) | `python scripts/run_mission.py` |
-| Run mission (custom config) | `python scripts/run_mission.py -c path/to/config.yaml` |
-| Start dashboard backend | `cd src/dashboard/backend && uvicorn main:app --reload --port 8000` |
-| Start dashboard frontend | `cd src/dashboard/frontend && npm run dev` |
-| Run tests | `python -m pytest tests/ -v` |
-| Docker (all services) | `cd docker && docker compose up` |
-| Kill orphaned MAVSDK server | `fuser -k 50051/tcp` |
+|:---|:---|
+| Build ROS 2 workspace | `./scripts/build_ros2.sh` |
+| Launch Multi-SITL + XRCE | `./scripts/launch_multi_sitl.sh --num 3 --xrce` |
+| Launch ROS 2 nodes | `source ros2_ws/install/setup.bash && ros2 launch multi_drone_bringup full_system.launch.py num_vehicles:=3` |
+| Run Multi-Vehicle mission | `conda activate base && python3 scripts/run_multi_mission.py` |
+| Run Multi-Vehicle (custom config) | `python3 scripts/run_multi_mission.py -c config/vehicle/fleet_config.yaml` |
+| Run test suite | `./scripts/run_tests.sh` |
+| Docker Compose up | `cd docker && docker compose up -d` |
 
 ---
 
@@ -20,148 +18,55 @@
 
 ### 1. Pre-Mission Checklist
 
-- [ ] PX4 SITL is running and shows "Ready for takeoff!"
-- [ ] Gazebo world is loaded (or `--headless` mode for CI)
+- [ ] ROS 2 workspace is built (`./scripts/build_ros2.sh`)
 - [ ] Miniconda base environment is activated (`conda activate base`)
-- [ ] Configuration reviewed in `config/vehicle/sim_config.yaml`
-- [ ] Data directories exist (`data/logs`, `data/detections`, `data/reports`)
+- [ ] Multi-instance PX4 SITL is running (`./scripts/launch_multi_sitl.sh --num 3 --xrce`)
+- [ ] Micro XRCE-DDS Agent is running on UDP port 8888
+- [ ] Fleet configuration verified in `config/vehicle/fleet_config.yaml`
 
 ### 2. Launch Sequence
 
 ```bash
-# Terminal 1: Start simulator
-./scripts/launch_sitl.sh
+# Terminal 1: Launch Multi-Instance PX4 SITL + XRCE-DDS Agent
+./scripts/launch_multi_sitl.sh --num 3 --xrce
 
-# Wait for "Ready for takeoff!" message (~15 seconds)
+# Terminal 2: Launch ROS 2 Vehicle Controllers & Fleet Coordinator
+source ros2_ws/install/setup.bash
+ros2 launch multi_drone_bringup full_system.launch.py num_vehicles:=3
 
-# Terminal 2: Backend
+# Terminal 3: Execute Multi-Vehicle Mission
 conda activate base
-cd src/dashboard/backend
-uvicorn main:app --reload --port 8000
-
-# Terminal 3: Frontend
-cd src/dashboard/frontend
-npm run dev
-# Open http://localhost:3000
-
-# OR — Terminal 2 only: Run mission via CLI (no dashboard)
-conda activate base
-python3 scripts/run_mission.py
+python3 scripts/run_multi_mission.py
 ```
 
-### 3. During Mission
+### 3. Formation Flight & Safety Monitoring
 
-- **Monitor**: Watch the dashboard for telemetry, video, and detections
-- **Abort**: Press `Ctrl+C` in the mission terminal, or click "Abort" in the dashboard
-- **Abort** triggers: ABORT → RTL → LANDED → IDLE (graceful)
-- **Safety**: Battery, geofence, and altitude monitors run automatically
-
-### 4. Post-Mission
-
-- Review detections in the dashboard Detection Log
-- Click **📄 PDF Report** in the dashboard to download a full report including telemetry
-- Click **📊 CSV Export** to download detection data as CSV (downloads even when empty)
-- Check logs in `data/logs/mission.log`
-- Reports are also accessible directly: `http://localhost:8000/api/report/pdf` and `/api/report/csv`
+- **Formations**: Default formation pattern (`line`, `v_formation`, `circle`, `diamond`) configured in `fleet_config.yaml`.
+- **Collision Avoidance**: Potential-field reactive collision avoidance (`CollisionAvoidance`) monitors inter-vehicle distances in real time.
+- **Safety Monitor**: Per-vehicle `SafetyGuard` C++ nodes monitor battery, geofence, altitude ceilings, and separation limits.
 
 ---
 
 ## Configuration Reference
 
-### Search Patterns
+### Formations
 
-| Pattern | Config Value | Best For |
-|---------|-------------|----------|
-| Lawnmower (boustrophedon) | `lawnmower` | Rectangular area systematic coverage |
-| Expanding Square | `expanding_square` | Point-of-interest search outward |
-| Custom Waypoints | `custom` | User-defined inspection route |
+| Pattern | Config Name | Description |
+|:---|:---|:---|
+| Line | `line` | Vehicles aligned perpendicular to heading |
+| V-Formation | `v_formation` | Apex leader with symmetric trailing wings |
+| Circle | `circle` | Radial distribution facing center |
+| Diamond | `diamond` | Diamond geometry with leader front, wings, tail |
 
-### Detection Tuning
-
-```yaml
-# config/vehicle/sim_config.yaml → perception section
-perception:
-  confidence_threshold: 0.45  # Higher = fewer false positives
-  classes:                     # Add/remove COCO classes
-    - "person"
-    - "car"
-  tracker:
-    track_buffer: 30           # Frames before losing a track
-    track_thresh: 0.5          # Min confidence to create new track
-```
-
-### Safety Limits
+### Fleet Safety Parameters
 
 ```yaml
+# config/vehicle/fleet_config.yaml
 safety:
-  geofence_radius_m: 500      # Max distance from home
-  max_altitude_m: 120          # Altitude ceiling
-  min_battery_percent: 20      # Triggers RTL warning
-  critical_battery_percent: 10  # Triggers emergency land
+  min_separation_m: 5.0          # Minimum inter-vehicle distance
+  avoidance_radius_m: 15.0       # Repulsion activation distance
+  geofence_radius_m: 500.0       # Home distance limit
+  max_altitude_m: 120.0          # Altitude ceiling
+  min_battery_pct: 20.0          # Low battery RTL threshold
+  critical_battery_pct: 10.0     # Critical battery land threshold
 ```
-
----
-
-## Troubleshooting
-
-### Mission won't start (stuck at PREFLIGHT)
-
-**Cause**: PX4 SITL hasn't established a GPS fix yet, or MAVSDK gRPC connection is unavailable.
-**Fix**:
-1. Wait 10–15 seconds after SITL launches for GPS simulation to initialize.
-2. If you restarted the backend (`uvicorn --reload`), a zombie `mavsdk_server` may be holding port 50051. Kill it:
-   ```bash
-   fuser -k 50051/tcp
-   ```
-3. The backend now auto-detects and kills orphaned processes before each connect attempt.
-
-### Detection Log shows no detections on second mission
-
-**Cause (fixed)**: The `/ws/detections` WebSocket tracked a `last_count` offset that was never reset when `container.detections` was cleared at mission start, so subsequent missions sent no events.
-**Status**: Fixed — the endpoint now detects a list reset (`current_count < last_count`) and resets the offset automatically.
-
-### No detections during SEARCH
-
-**Cause**: The Gazebo world may not contain detectable objects, or the camera feed isn't active.
-**Fix**: The system uses a synthetic test-pattern camera as fallback (`TestPatternCamera`). Note that YOLOv8 may not reliably detect the simple colored rectangles generated by the test pattern. Real detections require Gazebo camera with `camera.source: gazebo` in config.
-
-### Dashboard shows "Disconnected"
-
-**Cause**: Backend not running or PX4 SITL not running.
-**Fix**: Ensure both the SITL and backend are running. Check ports 14540 (SITL) and 8000 (API).
-
-### Camera feed does not fill the panel
-
-**Cause (fixed)**: CSS `object-fit: contain` does not apply to `<canvas>` elements.
-**Status**: Fixed — canvas now uses `max-width/max-height` scaling.
-
-### High CPU usage during mission
-
-**Cause**: YOLOv8 running on CPU.
-**Fix**: Set `perception.device: "cuda:0"` in config if a GPU is available, or reduce camera FPS.
-
----
-
-## API Endpoints Quick Reference
-
-### REST
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/status` | System health and connection status |
-| GET | `/api/mission/status` | Current mission progress |
-| POST | `/api/mission/start` | Start a new mission |
-| POST | `/api/mission/abort` | Abort current mission |
-| POST | `/api/mission/rtl` | Command Return to Launch |
-| GET | `/api/detections` | List all detections |
-| GET | `/api/snapshot` | Single JPEG camera snapshot |
-| GET | `/api/report/csv` | Download CSV report |
-| GET | `/api/report/pdf` | Download PDF report |
-
-### WebSocket
-
-| Endpoint | Data | Rate |
-|----------|------|------|
-| `/ws/telemetry` | JSON telemetry frames | 10 Hz |
-| `/ws/detections` | JSON detection events | On detection |
-| `/ws/video` | Binary JPEG frames | 15 FPS |
