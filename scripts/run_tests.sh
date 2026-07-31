@@ -111,7 +111,7 @@ echo ""
 export PYTHONDONTWRITEBYTECODE=1
 
 # Build pytest command
-PYTEST_CMD="python -m pytest"
+PYTEST_CMD="python3 -m pytest"
 
 # Layer selection
 if [ -n "$LAYER" ]; then
@@ -212,9 +212,9 @@ if [ "$TRACEABILITY" = true ]; then
     printf "${C_BOLD}${C_WHITE}  DO-178C Traceability Report${C_RESET}\n"
     printf "${C_BOLD}${C_CYAN}══════════════════════════════════════════════════${C_RESET}\n"
     if [ "$SAVE_LOG" = true ]; then
-        python tests/traceability/coverage_report.py 2>&1 | tee -a "$LOG_FILE"
+        python3 tests/traceability/coverage_report.py 2>&1 | tee -a "$LOG_FILE"
     else
-        python tests/traceability/coverage_report.py
+        python3 tests/traceability/coverage_report.py
     fi
 fi
 

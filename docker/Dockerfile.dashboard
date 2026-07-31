@@ -1,0 +1,47 @@
+# ============================================================
+# Dockerfile.dashboard — Python dashboard backend + frontend
+# ============================================================
+# Multi-stage build:
+#   1. Backend: Python dependencies + FastAPI
+#   2. Final: serve with uvicorn
+#
+# Build:  docker build -f docker/Dockerfile.dashboard -t multi-drone/dashboard .
+# ============================================================
+
+FROM python:3.10-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy and install Python dependencies
+COPY pyproject.toml /app/
+RUN pip install --no-cache-dir -e ".[dev]" 2>/dev/null || \
+    pip install --no-cache-dir \
+    fastapi>=0.110.0 \
+    uvicorn[standard]>=0.29.0 \
+    websockets>=12.0 \
+    python-multipart>=0.0.9 \
+    pydantic>=2.6.0 \
+    pyyaml>=6.0 \
+    aiohttp>=3.9.0
+
+# Copy application code
+COPY src/ /app/src/
+COPY config/ /app/config/
+COPY scripts/ /app/scripts/
+COPY dashboard/ /app/dashboard/ 2>/dev/null || true
+
+# Expose ports
+EXPOSE 8000 3000
+
+# Default: run dashboard backend
+CMD ["python", "-m", "uvicorn", "src.dashboard.app:app", \
+     "--host", "0.0.0.0", "--port", "8000", "--reload"]

@@ -22,7 +22,7 @@
 
 - [ ] PX4 SITL is running and shows "Ready for takeoff!"
 - [ ] Gazebo world is loaded (or `--headless` mode for CI)
-- [ ] Python venv is activated (`source .venv/bin/activate`)
+- [ ] Miniconda base environment is activated (`conda activate base`)
 - [ ] Configuration reviewed in `config/vehicle/sim_config.yaml`
 - [ ] Data directories exist (`data/logs`, `data/detections`, `data/reports`)
 
@@ -35,7 +35,7 @@
 # Wait for "Ready for takeoff!" message (~15 seconds)
 
 # Terminal 2: Backend
-source .venv/bin/activate
+conda activate base
 cd src/dashboard/backend
 uvicorn main:app --reload --port 8000
 
@@ -45,8 +45,8 @@ npm run dev
 # Open http://localhost:3000
 
 # OR — Terminal 2 only: Run mission via CLI (no dashboard)
-source .venv/bin/activate
-python scripts/run_mission.py
+conda activate base
+python3 scripts/run_mission.py
 ```
 
 ### 3. During Mission

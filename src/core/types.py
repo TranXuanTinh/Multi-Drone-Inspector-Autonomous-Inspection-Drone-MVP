@@ -192,3 +192,84 @@ class TracksUpdatedEvent:
     """Published when the tracking pipeline updates active tracks."""
     tracks: list[Track]
 
+
+# ──────────────────────────────────────────────────────────────
+# Multi-Vehicle Types
+# ──────────────────────────────────────────────────────────────
+
+@dataclass(slots=True)
+class VehicleId:
+    """Unique vehicle identifier for multi-UAV fleet operations.
+
+    Maps between PX4 instance numbers, ROS 2 namespaces, and
+    human-readable names.
+    """
+    instance_id: int          # PX4 instance number (0, 1, 2, ...)
+    namespace: str            # ROS 2 namespace ("/px4_0", "/px4_1", ...)
+    name: str                 # Human-readable name ("UAV-Alpha", ...)
+    mavlink_sys_id: int       # MAVLink system ID (1, 2, 3, ...)
+    role: str = "follower"    # "leader" or "follower"
+
+    def __repr__(self) -> str:
+        return f"Vehicle({self.name}, id={self.instance_id}, ns={self.namespace})"
+
+
+@dataclass(slots=True)
+class VehicleTelemetry:
+    """Per-vehicle telemetry with vehicle identity."""
+    vehicle_id: VehicleId
+    telemetry: TelemetryFrame
+    offboard_active: bool = False
+    mission_state: str = "IDLE"
+
+
+class FleetState(str, Enum):
+    """Fleet-wide coordination states."""
+    IDLE = "IDLE"
+    FORMING = "FORMING"            # Vehicles moving to formation positions
+    IN_FORMATION = "IN_FORMATION"  # All vehicles in position
+    EXECUTING = "EXECUTING"        # Multi-vehicle mission active
+    SCATTERING = "SCATTERING"      # Emergency scatter
+    RTL_ALL = "RTL_ALL"            # All vehicles returning to launch
+
+
+@dataclass(slots=True)
+class FormationConfig:
+    """Formation geometry definition."""
+    pattern: str = "line"               # "line", "v_formation", "circle", "diamond"
+    spacing_m: float = 10.0             # Inter-vehicle distance
+    altitude_offset_m: float = 0.0      # Per-vehicle altitude stagger
+    heading_deg: float = 0.0            # Formation heading
+
+
+@dataclass(slots=True)
+class FleetCommand:
+    """Command targeting one or all vehicles."""
+    target_vehicle_id: int | None = None    # None = broadcast to all
+    command: str = ""                       # "takeoff", "land", "goto", "rtl", etc.
+    params: dict = field(default_factory=dict)
+
+
+# ──────────────────────────────────────────────────────────────
+# Multi-Vehicle Events
+# ──────────────────────────────────────────────────────────────
+
+@dataclass(slots=True)
+class VehicleRegisteredEvent:
+    """Published when a vehicle joins the fleet."""
+    vehicle_id: VehicleId
+
+
+@dataclass(slots=True)
+class FleetStateChangeEvent:
+    """Published when the fleet coordination state changes."""
+    old_state: str
+    new_state: str
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass(slots=True)
+class VehicleTelemetryEvent:
+    """Published when telemetry is received from a specific vehicle."""
+    vehicle_telemetry: VehicleTelemetry
+

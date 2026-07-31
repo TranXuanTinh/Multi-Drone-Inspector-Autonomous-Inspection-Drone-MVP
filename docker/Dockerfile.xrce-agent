@@ -1,0 +1,37 @@
+# ============================================================
+# Dockerfile.xrce-agent — Micro XRCE-DDS Agent
+# ============================================================
+# Bridges PX4 SITL (uORB/XRCE client) ↔ ROS 2 DDS network.
+# One agent can handle multiple vehicle connections.
+#
+# Build:  docker build -f docker/Dockerfile.xrce-agent -t multi-drone/xrce-agent .
+# ============================================================
+
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    cmake \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build Micro XRCE-DDS Agent from source
+WORKDIR /opt
+RUN git clone --depth 1 -b v2.4.2 \
+    https://github.com/eProsima/Micro-XRCE-DDS-Agent.git agent
+
+WORKDIR /opt/agent/build
+RUN cmake .. \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr/local \
+    && make -j$(nproc) \
+    && make install \
+    && ldconfig
+
+# Default: listen on UDP port 8888
+EXPOSE 8888/udp
+
+ENTRYPOINT ["MicroXRCEAgent"]
+CMD ["udp4", "-p", "8888"]

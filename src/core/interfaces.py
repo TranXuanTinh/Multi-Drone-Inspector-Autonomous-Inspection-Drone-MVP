@@ -15,6 +15,7 @@ import numpy as np
 from src.core.types import (
     TelemetryFrame, Detection, Track, GeotaggedDetection,
     SafetyAction, Waypoint,
+    VehicleId, VehicleTelemetry, FleetState, FormationConfig, FleetCommand,
 )
 
 
@@ -262,3 +263,102 @@ class ReportGenerator(ABC):
         mission_duration_s: float, waypoint_count: int,
     ) -> None:
         """Generate and write the report file."""
+
+
+# ──────────────────────────────────────────────────────────────
+# Multi-Vehicle Interfaces
+# ──────────────────────────────────────────────────────────────
+
+class MultiVehicleConnector(ABC):
+    """Manages connections to multiple vehicles.
+
+    Extends the single-vehicle DroneConnector pattern to support
+    a fleet of vehicles, each with its own telemetry stream and
+    command channel.
+    """
+
+    @abstractmethod
+    async def register_vehicle(self, vehicle_id: VehicleId) -> None:
+        """Register a new vehicle with the connector."""
+
+    @abstractmethod
+    async def unregister_vehicle(self, instance_id: int) -> None:
+        """Remove a vehicle from the connector."""
+
+    @abstractmethod
+    def get_vehicle_telemetry(
+        self, instance_id: int,
+    ) -> Optional[VehicleTelemetry]:
+        """Get the latest telemetry for a specific vehicle."""
+
+    @abstractmethod
+    def get_all_telemetry(self) -> dict:
+        """Get telemetry for all connected vehicles."""
+
+    @abstractmethod
+    async def send_command(self, command: FleetCommand) -> None:
+        """Send a command to one or all vehicles."""
+
+
+class FleetCoordinatorInterface(ABC):
+    """Coordinates multi-vehicle operations.
+
+    Manages fleet state machine, formation control, and
+    coordinated mission execution.
+    """
+
+    @abstractmethod
+    async def set_formation(self, config: FormationConfig) -> None:
+        """Set the fleet formation pattern."""
+
+    @abstractmethod
+    async def execute_formation(self) -> None:
+        """Compute and send formation positions to all vehicles."""
+
+    @abstractmethod
+    async def scatter(self) -> None:
+        """Emergency scatter — all vehicles move away from each other."""
+
+    @abstractmethod
+    def get_fleet_state(self) -> FleetState:
+        """Get the current fleet coordination state."""
+
+    @abstractmethod
+    async def takeoff_all(self, altitude_m: float) -> None:
+        """Command all vehicles to take off."""
+
+    @abstractmethod
+    async def land_all(self) -> None:
+        """Command all vehicles to land."""
+
+    @abstractmethod
+    async def rtl_all(self) -> None:
+        """Command all vehicles to return to launch."""
+
+
+class OffboardControllerInterface(ABC):
+    """Per-vehicle offboard mode controller.
+
+    Manages the PX4 offboard control lifecycle for a single vehicle:
+    start/stop offboard mode and send position/velocity setpoints.
+    """
+
+    @abstractmethod
+    async def start_offboard(self) -> None:
+        """Enter offboard control mode."""
+
+    @abstractmethod
+    async def stop_offboard(self) -> None:
+        """Exit offboard control mode."""
+
+    @abstractmethod
+    async def send_position_setpoint(
+        self, x: float, y: float, z: float, yaw: float,
+    ) -> None:
+        """Send a position setpoint in NED frame (meters, radians)."""
+
+    @abstractmethod
+    async def send_velocity_setpoint(
+        self, vx: float, vy: float, vz: float, yaw_rate: float,
+    ) -> None:
+        """Send a velocity setpoint in NED frame (m/s, rad/s)."""

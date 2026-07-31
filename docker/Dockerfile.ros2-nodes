@@ -1,0 +1,60 @@
+# ============================================================
+# Dockerfile.ros2-nodes — C++ ROS 2 vehicle controllers + fleet manager
+# ============================================================
+# Multi-stage build:
+#   1. Build stage: colcon build of all ROS 2 packages
+#   2. Runtime stage: minimal image with built packages
+#
+# Build:  docker build -f docker/Dockerfile.ros2-nodes -t multi-drone/ros2-nodes .
+# ============================================================
+
+# ── Build Stage ──────────────────────────────────────────────
+FROM ros:jazzy AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-jazzy-px4-msgs \
+    libeigen3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy ROS 2 workspace source
+WORKDIR /ros2_ws
+COPY ros2_ws/src/ src/
+
+# Build all packages
+RUN . /opt/ros/jazzy/setup.sh && \
+    colcon build \
+      --cmake-args -DCMAKE_BUILD_TYPE=Release \
+      --symlink-install \
+      --packages-up-to multi_drone_bringup
+
+# ── Runtime Stage ────────────────────────────────────────────
+FROM ros:jazzy AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Runtime dependencies only
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-jazzy-px4-msgs \
+    libeigen3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy built workspace
+COPY --from=builder /ros2_ws/install/ /ros2_ws/install/
+COPY --from=builder /ros2_ws/build/ /ros2_ws/build/
+
+# Source workspace on container start
+RUN echo "source /opt/ros/jazzy/setup.bash" >> /root/.bashrc && \
+    echo "source /ros2_ws/install/setup.bash" >> /root/.bashrc
+
+WORKDIR /ros2_ws
+
+# Default: launch full system with 3 vehicles
+ENTRYPOINT ["/bin/bash", "-c", \
+    "source /opt/ros/jazzy/setup.bash && \
+     source /ros2_ws/install/setup.bash && \
+     exec $@", "--"]
+
+CMD ["ros2", "launch", "multi_drone_bringup", "full_system.launch.py", "num_vehicles:=3"]

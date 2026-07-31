@@ -1,51 +1,120 @@
-version: "3.8"
+# ============================================================
+# Docker Compose — Multi-UAV SITL Simulation Stack
+# ============================================================
+# Launches the complete multi-vehicle system:
+#   - 3 PX4 SITL instances (one container each)
+#   - 1 Micro XRCE-DDS Agent
+#   - 1 ROS 2 nodes container (vehicle controllers + fleet manager)
+#   - 1 Dashboard (FastAPI + WebSocket)
+#
+# Usage:
+#   docker compose up -d               # Start all services
+#   docker compose up -d --scale px4-sitl=5  # Scale to 5 vehicles
+#   docker compose logs -f ros2-nodes  # View ROS 2 logs
+#   docker compose down                # Stop all
+# ============================================================
 
 services:
-  # PX4 SITL + Gazebo simulator
-  px4-sitl:
+  # ── PX4 SITL Instances ─────────────────────────────────────
+  px4-sitl-0:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.sitl
-    ports:
-      - "14540:14540/udp"
-      - "14550:14550/udp"
+      dockerfile: docker/Dockerfile.px4-sitl
+    container_name: px4-sitl-0
     environment:
-      - PX4_SIM_MODEL=gz_x500
-      - DISPLAY=${DISPLAY:-:0}
-      - HEADLESS=${HEADLESS:-0}
-    volumes:
-      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - PX4_INSTANCE=0
+      - PX4_SYS_AUTOSTART=4001
+      - PX4_GZ_MODEL=${PX4_MODEL:-x500}
+      - PX4_GZ_MODEL_POSE=0,0,0,0,0,0
+      - HEADLESS=${HEADLESS:-1}
     network_mode: host
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/.px4_running || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
 
-  # Dashboard backend (FastAPI)
-  dashboard-backend:
+  px4-sitl-1:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.sitl
-    command: >
-      python3 -m uvicorn src.dashboard.backend.main:app
-      --host 0.0.0.0 --port 8000 --reload
-    ports:
-      - "8000:8000"
-    volumes:
-      - ../src:/app/src
-      - ../config:/app/config
-      - ../data:/app/data
-    depends_on:
-      - px4-sitl
+      dockerfile: docker/Dockerfile.px4-sitl
+    container_name: px4-sitl-1
+    environment:
+      - PX4_INSTANCE=1
+      - PX4_SYS_AUTOSTART=4001
+      - PX4_GZ_MODEL=${PX4_MODEL:-x500}
+      - PX4_GZ_MODEL_POSE=0,10,0,0,0,0
+      - HEADLESS=${HEADLESS:-1}
     network_mode: host
     restart: unless-stopped
-
-  # Dashboard frontend (React + Vite)
-  dashboard-frontend:
-    image: node:20-slim
-    working_dir: /app
-    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
-    ports:
-      - "3000:3000"
-    volumes:
-      - ../src/dashboard/frontend:/app
     depends_on:
-      - dashboard-backend
+      px4-sitl-0:
+        condition: service_started
+
+  px4-sitl-2:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.px4-sitl
+    container_name: px4-sitl-2
+    environment:
+      - PX4_INSTANCE=2
+      - PX4_SYS_AUTOSTART=4001
+      - PX4_GZ_MODEL=${PX4_MODEL:-x500}
+      - PX4_GZ_MODEL_POSE=0,20,0,0,0,0
+      - HEADLESS=${HEADLESS:-1}
+    network_mode: host
     restart: unless-stopped
+    depends_on:
+      px4-sitl-1:
+        condition: service_started
+
+  # ── Micro XRCE-DDS Agent ──────────────────────────────────
+  xrce-agent:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.xrce-agent
+    container_name: xrce-agent
+    command: udp4 -p ${XRCE_PORT:-8888}
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      - px4-sitl-0
+      - px4-sitl-1
+      - px4-sitl-2
+
+  # ── ROS 2 Vehicle Controllers + Fleet Manager ─────────────
+  ros2-nodes:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ros2-nodes
+    container_name: ros2-nodes
+    command: >
+      ros2 launch multi_drone_bringup full_system.launch.py
+      num_vehicles:=${NUM_VEHICLES:-3}
+    environment:
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      - xrce-agent
+
+  # ── Dashboard (FastAPI Backend) ────────────────────────────
+  dashboard:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.dashboard
+    container_name: dashboard
+    environment:
+      - FLEET_CONFIG=/app/config/vehicle/fleet_config.yaml
+      - DASHBOARD_HOST=0.0.0.0
+      - DASHBOARD_PORT=${DASHBOARD_PORT:-8000}
+    ports:
+      - "${DASHBOARD_PORT:-8000}:8000"
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      - ros2-nodes
+    volumes:
+      - ../data:/app/data

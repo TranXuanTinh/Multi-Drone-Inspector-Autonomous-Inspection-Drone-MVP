@@ -45,8 +45,8 @@ After setup:
 # You may need to reboot for user group changes
 sudo reboot
 
-# Activate the virtual environment
-source .venv/bin/activate
+# Activate the miniconda base environment
+conda activate base
 ```
 
 ---
@@ -92,11 +92,10 @@ make px4_sitl gz_x500
 ```bash
 cd /path/to/DronePX4
 
-# Create virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
+# Activate miniconda base environment
+conda activate base
 
-# Install dependencies
+# Install dependencies into base
 pip install -r requirements.txt
 ```
 
@@ -129,8 +128,8 @@ npm install
 ### 2. Run Unit Tests
 
 ```bash
-source .venv/bin/activate
-python -m pytest tests/ -v
+conda activate base
+python3 -m pytest tests/ -v
 ```
 
 ### 3. Test Mission (Headless)
@@ -140,8 +139,8 @@ python -m pytest tests/ -v
 ./scripts/launch_sitl.sh
 
 # Terminal 2: Run mission
-source .venv/bin/activate
-python scripts/run_mission.py
+conda activate base
+python3 scripts/run_mission.py
 ```
 
 ### 4. Test Dashboard
@@ -151,7 +150,7 @@ python scripts/run_mission.py
 ./scripts/launch_sitl.sh
 
 # Terminal 2: Backend
-source .venv/bin/activate
+conda activate base
 cd src/dashboard/backend
 uvicorn main:app --reload --port 8000
 
@@ -183,8 +182,8 @@ sudo apt install ninja-build
 ### Python import errors
 
 ```bash
-# Make sure venv is activated
-source .venv/bin/activate
+# Make sure miniconda base environment is activated
+conda activate base
 
 # Make sure you're in the project root
 cd /path/to/DronePX4

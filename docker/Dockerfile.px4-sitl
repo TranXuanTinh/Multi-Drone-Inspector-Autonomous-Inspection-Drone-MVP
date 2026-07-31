@@ -1,0 +1,68 @@
+# ============================================================
+# Dockerfile.px4-sitl — PX4 SITL container for multi-vehicle sim
+# ============================================================
+# Supports launching a single PX4 instance per container.
+# Multiple containers are orchestrated via docker-compose.
+#
+# Build:  docker build -f docker/Dockerfile.px4-sitl -t multi-drone/px4-sitl .
+# Run:    docker run -e PX4_INSTANCE=0 multi-drone/px4-sitl
+# ============================================================
+
+FROM ubuntu:22.04 AS base
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# System dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    cmake \
+    build-essential \
+    python3 \
+    python3-pip \
+    python3-jinja2 \
+    python3-jsonschema \
+    python3-toml \
+    python3-numpy \
+    python3-empy \
+    python3-packaging \
+    python3-yaml \
+    python3-setuptools \
+    libgstreamer1.0-dev \
+    libgstreamer-plugins-base1.0-dev \
+    wget \
+    curl \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone PX4-Autopilot
+WORKDIR /opt
+RUN git clone --recursive --depth 1 -b v1.15.0 \
+    https://github.com/PX4/PX4-Autopilot.git px4
+
+WORKDIR /opt/px4
+
+# Build PX4 SITL (without Gazebo GUI dependencies)
+RUN DONT_RUN=1 make px4_sitl_default
+
+# Copy SITL parameter overrides
+COPY config/px4_params/sitl_overrides.sh /opt/config/sitl_overrides.sh
+
+# ── Runtime ──────────────────────────────────────────────────
+FROM base AS runtime
+
+# Environment variables (overridden by docker-compose)
+ENV PX4_HOME=/opt/px4
+ENV PX4_INSTANCE=0
+ENV PX4_SYS_AUTOSTART=4001
+ENV PX4_GZ_MODEL=x500
+ENV PX4_GZ_MODEL_POSE="0,0,0,0,0,0"
+ENV HEADLESS=1
+
+WORKDIR /opt/px4
+
+# Entrypoint: source overrides and start PX4 SITL
+COPY docker/entrypoint-px4.sh /opt/entrypoint.sh
+RUN chmod +x /opt/entrypoint.sh
+
+ENTRYPOINT ["/opt/entrypoint.sh"]

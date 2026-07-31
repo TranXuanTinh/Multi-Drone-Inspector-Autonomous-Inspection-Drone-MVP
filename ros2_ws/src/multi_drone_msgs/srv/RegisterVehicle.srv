@@ -1,0 +1,14 @@
+# ============================================================
+# RegisterVehicle.srv — Register a vehicle with the fleet
+# ============================================================
+
+# Request
+uint8 vehicle_id
+string namespace
+string name
+string model               # e.g., "x500"
+string role                 # "leader" or "follower"
+---
+# Response
+bool success
+string message

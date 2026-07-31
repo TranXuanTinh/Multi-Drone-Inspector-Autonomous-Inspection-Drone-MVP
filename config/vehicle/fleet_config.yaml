@@ -1,0 +1,132 @@
+# ============================================================
+# Multi-UAV Fleet Configuration
+# ============================================================
+# Defines the fleet composition, formation patterns, safety
+# parameters, and communication settings for multi-vehicle
+# SITL simulation.
+# ============================================================
+
+fleet:
+  num_vehicles: 3
+  default_formation: "line"
+  default_spacing_m: 10.0
+  coordination_mode: "centralized"   # centralized | distributed
+
+# === Per-Vehicle Configuration ===
+vehicles:
+  - id: 0
+    name: "UAV-Alpha"
+    model: "x500"
+    role: "leader"
+    spawn_position: [0.0, 0.0, 0.0]        # [X, Y, Z] in meters
+    spawn_orientation: [0.0, 0.0, 0.0]      # [Roll, Pitch, Yaw] in radians
+    color: "#FF6B35"                          # Orange (for dashboard)
+    mavlink_sys_id: 1
+
+  - id: 1
+    name: "UAV-Bravo"
+    model: "x500"
+    role: "follower"
+    spawn_position: [0.0, 10.0, 0.0]
+    spawn_orientation: [0.0, 0.0, 0.0]
+    color: "#00A6FB"                          # Blue
+    mavlink_sys_id: 2
+
+  - id: 2
+    name: "UAV-Charlie"
+    model: "x500"
+    role: "follower"
+    spawn_position: [0.0, 20.0, 0.0]
+    spawn_orientation: [0.0, 0.0, 0.0]
+    color: "#51E898"                          # Green
+    mavlink_sys_id: 3
+
+# === Communication ===
+communication:
+  xrce_dds:
+    agent_host: "127.0.0.1"
+    agent_port: 8888
+    transport: "udp"                          # udp | serial
+    # For serial (Jetson): /dev/ttyTHS1 @ 921600
+
+  ros2:
+    domain_id: 0
+    qos_profile: "sensor_data"               # For PX4 telemetry topics
+    namespace_prefix: "/px4_"                 # Vehicles get /px4_0, /px4_1, ...
+
+  mavlink:
+    base_sitl_port: 14540                     # Vehicle i: 14540 + i*10
+    base_gcs_port: 14550                      # Vehicle i: 14550 + i*10
+    qgc_forward: true                        # Forward to QGroundControl
+
+# === Formation Patterns ===
+formation:
+  patterns:
+    line:
+      description: "Vehicles in a line perpendicular to heading"
+      spacing_m: 10.0
+      heading_deg: 0.0
+
+    v_formation:
+      description: "V-shape with leader at apex"
+      spacing_m: 8.0
+      angle_deg: 30.0
+
+    circle:
+      description: "Vehicles evenly distributed on a circle"
+      radius_m: 15.0
+      altitude_offset_m: 0.0
+
+    diamond:
+      description: "Diamond/box formation (4+ vehicles)"
+      spacing_m: 10.0
+
+# === Safety ===
+safety:
+  min_separation_m: 5.0                       # Minimum inter-vehicle distance
+  avoidance_radius_m: 15.0                    # Distance at which avoidance activates
+  geofence_radius_m: 500.0
+  max_altitude_m: 120.0
+  min_battery_pct: 20.0
+  critical_battery_pct: 10.0
+  connection_timeout_s: 5.0
+  collision_avoidance_enabled: true
+  priority_scheme: "id_based"                 # id_based | role_based
+
+# === Mission ===
+mission:
+  takeoff_altitude_m: 15.0
+  search_altitude_m: 20.0
+  max_speed_ms: 5.0
+  formation_speed_ms: 3.0
+  waypoint_acceptance_radius_m: 2.0
+
+  # Search area (centered on SITL default home)
+  search_area:
+    center_lat: 47.397742
+    center_lon: 8.545594
+    width_m: 300
+    height_m: 200
+    spacing_m: 30
+
+# === Offboard Control ===
+offboard:
+  control_rate_hz: 50.0                       # Setpoint publish rate (must be ≥2Hz)
+  position_tolerance_m: 0.5                   # Position setpoint achieved threshold
+  velocity_max_ms: 5.0
+  acceleration_max_ms2: 2.0
+
+# === Dashboard ===
+dashboard:
+  backend_host: "0.0.0.0"
+  backend_port: 8000
+  frontend_port: 3000
+  telemetry_rate_hz: 10
+  video_quality: 70
+
+# === Logging ===
+logging:
+  level: "INFO"
+  log_dir: "data/logs"
+  fleet_log_dir: "data/logs/fleet"
+  enable_rosbag: false                        # Record ROS 2 bag

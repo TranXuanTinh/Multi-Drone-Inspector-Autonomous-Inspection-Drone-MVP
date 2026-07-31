@@ -22,10 +22,9 @@ The framework is divided into five distinct layers to provide bi-directional tra
 A unified test runner script is provided at `scripts/run_tests.sh`.
 
 ### Prerequisites
-Make sure you are using the virtual environment with dependencies installed:
+Make sure you are using the Miniconda base environment with dependencies installed:
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+conda activate base
 pip install -r requirements.txt
 ```
 

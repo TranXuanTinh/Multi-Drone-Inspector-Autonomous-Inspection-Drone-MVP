@@ -89,9 +89,8 @@ operator dashboard. Everything runs in simulation.
 ### 1. Setup Environment
 
 ```bash
-# 1. Create and activate the conda environment
-conda create -n dronepx4 python=3.10 -y
-conda activate dronepx4
+# 1. Activate the miniconda base environment
+conda activate base
 
 # 2. Install PX4 SITL, Gazebo, and Node.js via the setup script
 chmod +x scripts/setup_env.sh
@@ -105,8 +104,7 @@ cd src/dashboard/frontend && npm install && cd -
 ```
 
 > **Note:** The setup script installs PX4-Autopilot and Gazebo Harmonic system-wide.
-> The conda environment handles all Python dependencies. Re-run `conda activate dronepx4`
-> in every new terminal before starting any Python process.
+> The miniconda base environment handles all Python dependencies. Ensure `conda activate base` is active in your terminal before running Python commands.
 
 ### 2. Launch PX4 SITL
 
@@ -118,20 +116,20 @@ cd src/dashboard/frontend && npm install && cd -
 ### 3. Run Mission
 
 ```bash
-# Make sure conda env is active first
-conda activate dronepx4
+# Make sure conda base env is active first
+conda activate base
 
 # Terminal 2: Execute autonomous mission (CLI mode)
-python scripts/run_mission.py
+python3 scripts/run_mission.py
 
 # With custom config:
-python scripts/run_mission.py --config config/vehicle/sim_config.yaml
+python3 scripts/run_mission.py --config config/vehicle/sim_config.yaml
 ```
 
 ### 4. Launch Dashboard (optional)
 
 ```bash
-conda activate dronepx4
+conda activate base
 
 # Terminal 3: Start backend
 cd src/dashboard/backend && uvicorn main:app --reload --port 8000
