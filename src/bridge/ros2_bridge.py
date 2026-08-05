@@ -80,6 +80,21 @@ class ROS2VehicleBridge(DroneConnector):
                 f"[{self._vehicle_id.name}] No ROS node provided — "
                 f"running in stub mode"
             )
+            import time
+            self._latest_telemetry = TelemetryFrame(
+                timestamp=time.time(),
+                position=Position(47.397742, 8.545594, 488.0, 0.0),
+                attitude=Attitude(0.0, 0.0, 0.0),
+                heading_deg=0.0,
+                groundspeed_ms=0.0,
+                battery_percent=100.0,
+                battery_voltage=16.8,
+                flight_mode="HOLD",
+                armed=False,
+                is_connected=True,
+                gps_num_satellites=10,
+                gps_fix_type=3,
+            )
 
         self._connected = True
         logger.info(
@@ -133,6 +148,12 @@ class ROS2VehicleBridge(DroneConnector):
         logger.info(
             f"[{self._vehicle_id.name}] Telemetry stream started"
         )
+        if callback and self._ros_node is None:
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(callback(self._latest_telemetry))
+            except Exception as e:
+                logger.error(f"Failed to trigger initial stub telemetry callback: {e}")
 
     async def stop_telemetry_stream(self) -> None:
         """Stop telemetry stream."""
@@ -246,6 +267,52 @@ class ROS2VehicleBridge(DroneConnector):
                 f"[{self._vehicle_id.name}] No command publisher — "
                 f"command {command} ignored"
             )
+            # Update simulated telemetry in stub mode
+            try:
+                CMD_TAKEOFF_ALL = 0
+                CMD_LAND_ALL = 1
+                CMD_RTL_ALL = 2
+                CMD_ARM_ALL = 3
+                CMD_DISARM_ALL = 4
+                CMD_GOTO = 7
+
+                if command == CMD_ARM_ALL:
+                    self._latest_telemetry.armed = True
+                elif command == CMD_DISARM_ALL:
+                    self._latest_telemetry.armed = False
+                elif command == CMD_TAKEOFF_ALL:
+                    self._latest_telemetry.armed = True
+                    self._latest_telemetry.position = Position(
+                        latitude_deg=self._latest_telemetry.position.latitude_deg,
+                        longitude_deg=self._latest_telemetry.position.longitude_deg,
+                        absolute_altitude_m=param1 + 488.0,
+                        relative_altitude_m=param1
+                    )
+                elif command in (CMD_LAND_ALL, CMD_RTL_ALL):
+                    self._latest_telemetry.position = Position(
+                        latitude_deg=self._latest_telemetry.position.latitude_deg,
+                        longitude_deg=self._latest_telemetry.position.longitude_deg,
+                        absolute_altitude_m=488.0,
+                        relative_altitude_m=0.0
+                    )
+                    self._latest_telemetry.armed = False
+                elif command == CMD_GOTO:
+                    # In NED local goto, param3 is z (negative = up)
+                    self._latest_telemetry.position = Position(
+                        latitude_deg=param1,
+                        longitude_deg=param2,
+                        absolute_altitude_m=abs(param3) + 488.0,
+                        relative_altitude_m=abs(param3)
+                    )
+
+                if self._telemetry_callback:
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(self._telemetry_callback(self._latest_telemetry))
+                    except Exception as callback_err:
+                        logger.error(f"Failed to trigger telemetry callback: {callback_err}")
+            except Exception as e:
+                logger.error(f"Failed to update simulated telemetry: {e}")
             return
 
         try:

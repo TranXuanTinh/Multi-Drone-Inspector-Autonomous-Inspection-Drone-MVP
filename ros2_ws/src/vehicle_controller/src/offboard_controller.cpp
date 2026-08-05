@@ -1,3 +1,24 @@
+// Copyright 2026 MultiDrone Developer
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+// THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+
+
 /**
  * @file offboard_controller.cpp
  * @brief Per-vehicle offboard controller — PX4 ROS 2 interface via XRCE-DDS
@@ -457,7 +478,7 @@ void OffboardController::publish_fleet_status()
   std::lock_guard<std::mutex> lock(state_mutex_);
 
   msg.vehicle_id = vehicle_id_;
-  msg.namespace_ = this->get_namespace();
+  msg.vehicle_namespace = this->get_namespace();
   msg.name = vehicle_name_;
 
   msg.latitude_deg = state_.latitude_deg;
@@ -480,7 +501,7 @@ void OffboardController::publish_fleet_status()
   msg.flight_mode = state_.flight_mode;
   msg.armed = state_.armed;
   msg.offboard_active = offboard_active_;
-  msg.mission_state = "ACTIVE";  // TODO: integrate with mission state machine
+  msg.mission_state = "ACTIVE";  // TODO(developer): integrate with mission state machine
 
   msg.connected = true;  // If we're running, we're connected
   msg.gps_fix_type = state_.gps_fix_type;

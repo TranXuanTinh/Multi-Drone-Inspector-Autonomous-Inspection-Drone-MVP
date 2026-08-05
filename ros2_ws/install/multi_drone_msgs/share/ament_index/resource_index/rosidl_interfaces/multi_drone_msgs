@@ -1,0 +1,12 @@
+msg/FleetStatus.idl
+msg/FleetStatus.msg
+msg/FormationCommand.idl
+msg/FormationCommand.msg
+msg/MissionCommand.idl
+msg/MissionCommand.msg
+msg/VehicleStatus.idl
+msg/VehicleStatus.msg
+srv/AssignMission.idl
+srv/AssignMission.srv
+srv/RegisterVehicle.idl
+srv/RegisterVehicle.srv

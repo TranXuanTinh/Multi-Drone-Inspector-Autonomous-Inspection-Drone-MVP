@@ -12,21 +12,48 @@ Usage:
 """
 from __future__ import annotations
 
+import os
+import sys
 import asyncio
 import argparse
 import logging
 import signal
-import sys
 from pathlib import Path
 
+# --- Bootstrap LD_LIBRARY_PATH for ROS 2 & multi_drone_msgs ---
+_project_root = Path(__file__).parent.parent.resolve()
+_ros_distro = os.environ.get("ROS_DISTRO", "jazzy")
+_required_ld_paths = [
+    f"/opt/ros/{_ros_distro}/lib",
+    str(_project_root / "ros2_ws" / "install" / "multi_drone_msgs" / "lib"),
+    str(_project_root / "ros2_ws" / "install" / "px4_msgs" / "lib"),
+]
+
+# Check which required paths are currently missing from LD_LIBRARY_PATH
+_current_ld_path = os.environ.get("LD_LIBRARY_PATH", "")
+_current_ld_paths = [p for p in _current_ld_path.split(":") if p]
+_missing_paths = [p for p in _required_ld_paths if p not in _current_ld_paths and os.path.isdir(p)]
+
+if _missing_paths and not os.environ.get("_RESTARTED_WITH_LD_LIBRARY_PATH"):
+    # Prepend missing paths to preserve precedence
+    _new_ld_path = ":".join(_missing_paths + _current_ld_paths)
+    os.environ["LD_LIBRARY_PATH"] = _new_ld_path
+    os.environ["_RESTARTED_WITH_LD_LIBRARY_PATH"] = "1"
+    
+    # Re-execute Python with the corrected LD_LIBRARY_PATH
+    try:
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    except Exception as e:
+        sys.stderr.write(f"Failed to auto-restart with updated LD_LIBRARY_PATH: {e}\n")
+
 # Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(_project_root))
 
 from src.utils.logger import setup_logging
 from src.utils.config_loader import load_config
 from src.core.events import EventBus
 from src.core.types import (
-    VehicleId, FleetState, FormationConfig,
+    VehicleId, FleetState, FormationConfig, FleetCommand,
 )
 from src.fleet.fleet_manager import FleetManager
 from src.fleet.formation_patterns import FormationPatternGenerator
@@ -57,6 +84,50 @@ async def main(config_path: str = None):
 
     event_bus = EventBus()
 
+    # === Initialize ROS 2 if available ===
+    ros_node = None
+    try:
+        # Auto-add ROS 2 Jazzy Python paths if not already on sys.path.
+        # This allows the script to work from conda without requiring the
+        # user to manually `source /opt/ros/jazzy/setup.bash` first.
+        import os
+        _ros_distro = os.environ.get("ROS_DISTRO", "jazzy")
+        _ros_python_path = f"/opt/ros/{_ros_distro}/lib/python3.12/site-packages"
+        if os.path.isdir(_ros_python_path) and _ros_python_path not in sys.path:
+            sys.path.insert(0, _ros_python_path)
+        # Also add the workspace install path for multi_drone_msgs
+        _ws_install = os.path.join(
+            str(Path(__file__).parent.parent), "ros2_ws", "install"
+        )
+        if os.path.isdir(_ws_install):
+            # Walk install/<pkg>/lib/python3.12/site-packages
+            for pkg_dir in Path(_ws_install).iterdir():
+                sp = pkg_dir / "lib" / "python3.12" / "site-packages"
+                if sp.is_dir() and str(sp) not in sys.path:
+                    sys.path.insert(0, str(sp))
+
+        # Also ensure ROS 2 shared libraries are findable
+        _ros_lib = f"/opt/ros/{_ros_distro}/lib"
+        _ld_path = os.environ.get("LD_LIBRARY_PATH", "")
+        if _ros_lib not in _ld_path:
+            os.environ["LD_LIBRARY_PATH"] = f"{_ros_lib}:{_ld_path}"
+
+        import rclpy
+        from rclpy.node import Node
+        rclpy.init()
+        ros_node = Node("mission_client")
+        logger.info("ROS 2 initialized, running in REAL mode")
+
+        # Spin ROS 2 node in background
+        async def spin_node():
+            while rclpy.ok():
+                rclpy.spin_once(ros_node, timeout_sec=0.05)
+                await asyncio.sleep(0.05)
+        asyncio.create_task(spin_node())
+    except ImportError as e:
+        logger.info(f"ROS 2 not available ({e}), running in STUB/offline mode")
+        logger.info("Hint: Ensure Python version matches ROS 2 Jazzy (3.12)")
+
     # === Initialize Fleet Manager ===
     fleet = FleetManager(config=config, event_bus=event_bus)
 
@@ -75,8 +146,8 @@ async def main(config_path: str = None):
             role=v_cfg.get("role", "follower" if i > 0 else "leader"),
         )
 
-        # Create bridge (stub mode — no ROS node in standalone Python)
-        bridge = ROS2VehicleBridge(vehicle_id=vid, ros_node=None)
+        # Create bridge
+        bridge = ROS2VehicleBridge(vehicle_id=vid, ros_node=ros_node)
         await bridge.connect()
 
         # Create flight commands
@@ -85,9 +156,38 @@ async def main(config_path: str = None):
         bridges[i] = bridge
         commands[i] = cmd
 
+        # Register callback to update FleetManager telemetry
+        def make_telemetry_callback(instance_id):
+            async def cb(frame):
+                fleet.update_vehicle_telemetry(instance_id, frame)
+            return cb
+        await bridge.start_telemetry_stream(callback=make_telemetry_callback(vid.instance_id))
+
+        # Register command handler to map fleet commands to flight controller commands
+        def make_command_handler(flight_cmd):
+            async def handler(fleet_cmd):
+                c = fleet_cmd.command
+                params = fleet_cmd.params or {}
+                if c == "takeoff":
+                    alt = params.get("altitude_m", 15.0)
+                    await flight_cmd.takeoff(alt)
+                elif c == "land":
+                    await flight_cmd.land()
+                elif c == "rtl":
+                    await flight_cmd.rtl()
+                elif c == "hold":
+                    await flight_cmd.hold()
+                elif c == "goto":
+                    lat = params.get("latitude_deg")
+                    lon = params.get("longitude_deg")
+                    alt = params.get("altitude_m")
+                    yaw = params.get("yaw_deg", float("nan"))
+                    await flight_cmd.goto(lat, lon, alt, yaw)
+            return handler
+        fleet.register_command_handler(vid.instance_id, make_command_handler(cmd))
+
         # Register with fleet manager
         await fleet.register_vehicle(vid)
-
         logger.info(f"Registered: {vid}")
 
     logger.info(f"Fleet ready: {fleet.num_vehicles} vehicles")
@@ -132,7 +232,15 @@ async def main(config_path: str = None):
     await fleet.takeoff_all(
         altitude_m=mission_config.get("takeoff_altitude_m", 15.0),
     )
-    await asyncio.sleep(3)
+    # Wait for all vehicles to reach altitude
+    await asyncio.gather(*(
+        cmd.wait_for_altitude(
+            mission_config.get("takeoff_altitude_m", 15.0),
+            tolerance_m=1.5,
+            timeout_s=30.0,
+        )
+        for cmd in commands.values()
+    ))
 
     logger.info("\n--- Phase 2: Form Line Formation ---")
     await fleet.set_formation(
@@ -141,6 +249,8 @@ async def main(config_path: str = None):
             spacing_m=fleet_config.get("default_spacing_m", 10.0),
         )
     )
+    await fleet.execute_formation()
+    # Wait a few seconds for vehicles to stabilize formation positions
     await asyncio.sleep(5)
 
     logger.info("\n--- Phase 3: Execute Coordinated Mission ---")
@@ -148,7 +258,15 @@ async def main(config_path: str = None):
 
     logger.info("\n--- Phase 4: RTL All ---")
     await fleet.rtl_all()
-    await asyncio.sleep(3)
+    # Wait for all vehicles to land and disarm
+    await asyncio.gather(*(
+        cmd.wait_for_landed(timeout_s=60.0)
+        for cmd in commands.values()
+    ))
+    await asyncio.gather(*(
+        cmd.wait_for_disarmed(timeout_s=30.0)
+        for cmd in commands.values()
+    ))
 
     # === Report ===
     logger.info("=" * 60)
@@ -161,6 +279,14 @@ async def main(config_path: str = None):
     # Cleanup
     for bridge in bridges.values():
         await bridge.disconnect()
+
+    if ros_node:
+        try:
+            import rclpy
+            ros_node.destroy_node()
+            rclpy.shutdown()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

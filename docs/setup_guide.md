@@ -8,18 +8,21 @@ Complete setup instructions for running the Multi-UAV Drone Inspector simulation
 |:---|:---|:---|
 | **Ubuntu** | 22.04 LTS / 24.04 LTS | `lsb_release -a` |
 | **ROS 2** | Jazzy Jalisco | `ros2 --version` |
-| **Python** | ≥ 3.10 (Miniconda `base`) | `python3 --version` |
+| **Python** | 3.12.x (Miniconda `base`) | `python3 --version` |
 | **Git** | Any | `git --version` |
 | **CMake** | ≥ 3.22 | `cmake --version` |
 | **Node.js** | ≥ 18 (for dashboard) | `node --version` |
+
+> **Important**: Python must be **3.12.x** to match ROS 2 Jazzy's compiled C extensions (`rclpy`). Python 3.13+ is **not compatible**.
 
 ---
 
 ## Method A: Automated Setup (Recommended)
 
 ```bash
-# 1. Activate Miniconda base environment
+# 1. Activate Miniconda base environment (ensure Python 3.12)
 conda activate base
+python3 --version  # Must show 3.12.x — if 3.13+, run: conda install python=3.12
 
 # 2. Run system setup script (installs PX4, Gazebo Harmonic, Node.js, and deps)
 chmod +x scripts/setup_env.sh

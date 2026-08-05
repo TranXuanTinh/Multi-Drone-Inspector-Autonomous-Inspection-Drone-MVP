@@ -1,3 +1,24 @@
+// Copyright 2026 MultiDrone Developer
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+// THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+
+
 /**
  * @file offboard_controller.hpp
  * @brief Per-vehicle offboard controller for PX4 via ROS 2 / Micro XRCE-DDS
@@ -151,10 +172,10 @@ public:
   void set_velocity_setpoint(float vx, float vy, float vz, float yaw_rate);
 
   // ── Getters ───────────────────────────────────────────────
-  const VehicleState & get_state() const { return state_; }
-  bool is_offboard_active() const { return offboard_active_; }
-  bool is_armed() const { return state_.armed; }
-  uint8_t vehicle_id() const { return vehicle_id_; }
+  const VehicleState & get_state() const {return state_;}
+  bool is_offboard_active() const {return offboard_active_;}
+  bool is_armed() const {return state_.armed;}
+  uint8_t vehicle_id() const {return vehicle_id_;}
 
 private:
   // ── Parameters ────────────────────────────────────────────

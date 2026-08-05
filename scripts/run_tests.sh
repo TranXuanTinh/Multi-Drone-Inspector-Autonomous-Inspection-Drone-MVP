@@ -21,6 +21,36 @@ COLORIZER="$SCRIPT_DIR/colorize_output.py"
 
 cd "$PROJECT_DIR"
 
+# --- Set up ROS 2 and workspace paths for pytest ---
+ROS_DISTRO="${ROS_DISTRO:-jazzy}"
+ROS_LIB="/opt/ros/${ROS_DISTRO}/lib"
+WS_INSTALL="${PROJECT_DIR}/ros2_ws/install"
+
+# Prepend ROS 2 paths to PYTHONPATH
+if [ -d "/opt/ros/${ROS_DISTRO}/lib/python3.12/site-packages" ]; then
+    export PYTHONPATH="/opt/ros/${ROS_DISTRO}/lib/python3.12/site-packages:${PYTHONPATH:-}"
+fi
+
+# Prepend workspace packages to PYTHONPATH and LD_LIBRARY_PATH
+if [ -d "$WS_INSTALL" ]; then
+    for pkg in "$WS_INSTALL"/*; do
+        if [ -d "$pkg" ]; then
+            # Add python packages
+            if [ -d "$pkg/lib/python3.12/site-packages" ]; then
+                export PYTHONPATH="$pkg/lib/python3.12/site-packages:${PYTHONPATH:-}"
+            fi
+            # Add libraries
+            if [ -d "$pkg/lib" ]; then
+                export LD_LIBRARY_PATH="$pkg/lib:${LD_LIBRARY_PATH:-}"
+            fi
+        fi
+    done
+fi
+
+if [ -d "$ROS_LIB" ]; then
+    export LD_LIBRARY_PATH="${ROS_LIB}:${LD_LIBRARY_PATH:-}"
+fi
+
 # ──────────────────────────────────────────────────────────────
 # ANSI color codes
 # ──────────────────────────────────────────────────────────────

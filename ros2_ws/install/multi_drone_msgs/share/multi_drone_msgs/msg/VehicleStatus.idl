@@ -1,0 +1,90 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from multi_drone_msgs/msg/VehicleStatus.msg
+// generated code does not contain a copyright notice
+
+#include "builtin_interfaces/msg/Time.idl"
+
+module multi_drone_msgs {
+  module msg {
+    @verbatim (language="comment", text=
+      "============================================================" "\n"
+      "VehicleStatus.msg — Per-vehicle telemetry and status" "\n"
+      "Published by each vehicle_controller node" "\n"
+      "============================================================")
+    struct VehicleStatus {
+      @verbatim (language="comment", text=
+        "Vehicle identity")
+      uint8 vehicle_id;
+
+      string vehicle_namespace;
+
+      string name;
+
+      @verbatim (language="comment", text=
+        "Position & attitude")
+      double latitude_deg;
+
+      double longitude_deg;
+
+      float absolute_altitude_m;
+
+      float relative_altitude_m;
+
+      float heading_deg;
+
+      float roll_deg;
+
+      float pitch_deg;
+
+      float yaw_deg;
+
+      @verbatim (language="comment", text=
+        "Velocity")
+      float groundspeed_ms;
+
+      float velocity_north_ms;
+
+      float velocity_east_ms;
+
+      float velocity_down_ms;
+
+      @verbatim (language="comment", text=
+        "Battery")
+      float battery_percent;
+
+      float battery_voltage;
+
+      @verbatim (language="comment", text=
+        "Flight state")
+      string flight_mode;
+
+      boolean armed;
+
+      boolean offboard_active;
+
+      string mission_state;
+
+      @verbatim (language="comment", text=
+        "Health & connectivity")
+      boolean connected;
+
+      uint8 gps_fix_type;
+
+      uint8 gps_num_satellites;
+
+      boolean is_healthy;
+
+      @verbatim (language="comment", text=
+        "Local position (NED frame, meters from home)")
+      float local_x;
+
+      float local_y;
+
+      float local_z;
+
+      @verbatim (language="comment", text=
+        "Timestamp")
+      builtin_interfaces::msg::Time stamp;
+    };
+  };
+};

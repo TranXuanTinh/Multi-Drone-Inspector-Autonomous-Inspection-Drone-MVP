@@ -1,0 +1,47 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from multi_drone_msgs/srv/AssignMission.srv
+// generated code does not contain a copyright notice
+
+
+module multi_drone_msgs {
+  module srv {
+    @verbatim (language="comment", text=
+      "============================================================" "\n"
+      "AssignMission.srv — Assign a mission to a specific vehicle" "\n"
+      "============================================================")
+    struct AssignMission_Request {
+      @verbatim (language="comment", text=
+        "Request")
+      uint8 vehicle_id;
+
+      @verbatim (language="comment", text=
+        "\"inspection\", \"patrol\", \"hover\", \"goto\"")
+      string mission_type;
+
+      @verbatim (language="comment", text=
+        "Latitude array")
+      sequence<double> waypoint_lats;
+
+      @verbatim (language="comment", text=
+        "Longitude array")
+      sequence<double> waypoint_lons;
+
+      @verbatim (language="comment", text=
+        "Altitude array")
+      sequence<float> waypoint_alts;
+
+      @verbatim (language="comment", text=
+        "Max mission speed")
+      float speed_ms;
+    };
+    @verbatim (language="comment", text=
+      "Response")
+    struct AssignMission_Response {
+      boolean success;
+
+      string message;
+
+      uint32 num_waypoints_accepted;
+    };
+  };
+};

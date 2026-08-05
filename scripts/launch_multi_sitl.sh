@@ -93,14 +93,27 @@ SPAWN_POSITIONS=(
     "0,35,0,0,0,0"
 )
 
-# ── Environment ──────────────────────────────────────────
-export GZ_SIM_RESOURCE_PATH="${PROJECT_DIR}/config/gazebo/models:${GZ_SIM_RESOURCE_PATH:-}"
-export GZ_SIM_WORLD_PATH="${PROJECT_DIR}/config/gazebo/worlds:${GZ_SIM_WORLD_PATH:-}"
+# ── Environment & NVIDIA GPU Acceleration ──────────────────
+export GZ_SIM_RESOURCE_PATH="${PROJECT_DIR}/config/gazebo/models:${PX4_DIR}/Tools/simulation/gz/models:${GZ_SIM_RESOURCE_PATH:-}"
+export GZ_SIM_WORLD_PATH="${PROJECT_DIR}/config/gazebo/worlds:${PX4_DIR}/Tools/simulation/gz/worlds:${GZ_SIM_WORLD_PATH:-}"
+export PX4_GZ_WORLD="default"
+export PX4_GZ_WORLDS="${PX4_DIR}/Tools/simulation/gz/worlds"
+
+# NVIDIA GPU Acceleration (Optimus Offload)
 export __NV_PRIME_RENDER_OFFLOAD=1
+export __NV_PRIME_RENDER_OFFLOAD_PROVIDER=NVIDIA-G0
 export __GLX_VENDOR_LIBRARY_NAME=nvidia
+export __VK_LAYER_NV_optimus=NVIDIA_only
+
+# Qt5 rendering settings (prevents Optimus multi-threaded render-thread deadlock)
+export QSG_RENDER_LOOP=basic
+export QT_X11_NO_MITSHM=1
+export QT_XCB_GL_INTEGRATION=xcb_glx
 
 if [ "$HEADLESS" = true ]; then
     export HEADLESS=1
+    export GZ_HEADLESS=1
+    export PX4_GZ_HEADLESS=1
 fi
 
 # Apply PX4 parameter overrides
@@ -136,9 +149,22 @@ echo ""
 # ── Start Micro XRCE-DDS Agent ──────────────────────────
 if [ "$START_XRCE" = true ]; then
     echo "[XRCE] Starting Micro XRCE-DDS Agent on port 8888..."
-    MicroXRCEAgent udp4 -p 8888 &
-    XRCE_PID=$!
-    echo "[XRCE] Agent PID: $XRCE_PID"
+    if command -v MicroXRCEAgent &> /dev/null; then
+        MicroXRCEAgent udp4 -p 8888 &
+        XRCE_PID=$!
+        echo "[XRCE] Agent PID: $XRCE_PID (MicroXRCEAgent)"
+    elif command -v micro-xrce-dds-agent &> /dev/null; then
+        micro-xrce-dds-agent udp4 -p 8888 &
+        XRCE_PID=$!
+        echo "[XRCE] Agent PID: $XRCE_PID (micro-xrce-dds-agent)"
+    elif [ -f "$PX4_DIR/build/px4_sitl_default/MicroXRCEAgent/MicroXRCEAgent" ]; then
+        "$PX4_DIR/build/px4_sitl_default/MicroXRCEAgent/MicroXRCEAgent" udp4 -p 8888 &
+        XRCE_PID=$!
+        echo "[XRCE] Agent PID: $XRCE_PID (PX4 build agent)"
+    else
+        echo "[XRCE] WARNING: MicroXRCEAgent executable not found in PATH."
+        echo "       Install via: sudo snap install micro-xrce-dds-agent --edge"
+    fi
     sleep 1
 fi
 
@@ -156,23 +182,40 @@ for i in $(seq 0 $((NUM_VEHICLES - 1))); do
     echo "  Spawn:         $SPAWN_POS"
     echo "  ROS namespace: /px4_$i"
 
+    # Only instance 0 starts the master Gazebo server + GUI.
+    # Instances 1..N-1 attach to the existing Gazebo server in standalone mode.
+    if [ $INSTANCE -gt 0 ]; then
+        export PX4_GZ_STANDALONE=1
+    else
+        unset PX4_GZ_STANDALONE
+    fi
+
     # PX4 environment variables for multi-instance
     PX4_SYS_AUTOSTART=4001 \
-    PX4_GZ_MODEL=$MODEL \
+    PX4_SIM_MODEL="gz_${MODEL}" \
+    PX4_GZ_MODEL="$MODEL" \
     PX4_GZ_MODEL_POSE="$SPAWN_POS" \
     PX4_INSTANCE=$INSTANCE \
+    PX4_UXRCE_DDS_NS="px4_${INSTANCE}" \
     $PX4_DIR/build/px4_sitl_default/bin/px4 \
         -i $INSTANCE \
         -d "$PX4_DIR/build/px4_sitl_default/etc" \
         -s "$PX4_DIR/build/px4_sitl_default/etc/init.d-posix/rcS" \
         -w "$PX4_DIR/build/px4_sitl_default/instance_$INSTANCE" \
-        > /dev/null 2>&1 &
+        > "/tmp/px4_instance_${INSTANCE}.log" 2>&1 &
 
     PIDS+=($!)
     echo "  PID: ${PIDS[-1]}"
 
-    # Wait between instances to avoid Gazebo spawn conflicts
-    sleep 3
+    # Wait between instances to avoid Gazebo spawn conflicts.
+    # The first instance (which launches the Gazebo server and GUI) needs more time to initialize.
+    if [ $i -eq 0 ]; then
+        echo "  Waiting 10s for Gazebo server to initialize..."
+        sleep 10
+    else
+        echo "  Waiting 4s for vehicle spawn to stabilize..."
+        sleep 4
+    fi
 done
 
 echo ""

@@ -1,0 +1,62 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from multi_drone_msgs/msg/FormationCommand.msg
+// generated code does not contain a copyright notice
+
+#include "builtin_interfaces/msg/Time.idl"
+
+module multi_drone_msgs {
+  module msg {
+    @verbatim (language="comment", text=
+      "============================================================" "\n"
+      "FormationCommand.msg — Command to set or change formation" "\n"
+      "Published by fleet_coordinator or dashboard" "\n"
+      "============================================================")
+    struct FormationCommand {
+      @verbatim (language="comment", text=
+        "Formation pattern" "\n"
+        "\"line\", \"v_formation\", \"circle\", \"diamond\", \"custom\"")
+      string pattern;
+
+      @verbatim (language="comment", text=
+        "Formation parameters" "\n"
+        "Inter-vehicle distance")
+      float spacing_m;
+
+      @verbatim (language="comment", text=
+        "Formation heading direction")
+      float heading_deg;
+
+      @verbatim (language="comment", text=
+        "Formation altitude (0 = maintain current)")
+      float altitude_m;
+
+      @verbatim (language="comment", text=
+        "Per-vehicle altitude stagger")
+      float altitude_offset_m;
+
+      @verbatim (language="comment", text=
+        "Leader specification" "\n"
+        "Which vehicle leads the formation")
+      uint8 leader_vehicle_id;
+
+      @verbatim (language="comment", text=
+        "Target position for formation center (optional)")
+      boolean has_target_position;
+
+      double target_latitude_deg;
+
+      double target_longitude_deg;
+
+      float target_altitude_m;
+
+      @verbatim (language="comment", text=
+        "Speed" "\n"
+        "Formation movement speed")
+      float max_speed_ms;
+
+      @verbatim (language="comment", text=
+        "Timestamp")
+      builtin_interfaces::msg::Time stamp;
+    };
+  };
+};

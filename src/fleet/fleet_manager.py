@@ -209,18 +209,71 @@ class FleetManager:
         self,
         waypoints_per_vehicle: Dict[int, List[Waypoint]],
     ) -> None:
-        """Execute independent waypoint missions for each vehicle."""
+        """Execute independent waypoint missions for each vehicle in parallel."""
         logger.info(
             f"Starting coordinated mission for "
             f"{len(waypoints_per_vehicle)} vehicles"
         )
         await self._set_fleet_state(FleetState.EXECUTING)
 
-        # TODO: Integration with per-vehicle MissionStateMachine
-        for vid, waypoints in waypoints_per_vehicle.items():
-            logger.info(
-                f"Vehicle {vid}: {len(waypoints)} waypoints assigned"
-            )
+        async def run_vehicle_mission(vid: int, waypoints: List[Waypoint]):
+            from src.core.geo import haversine_distance
+            logger.info(f"Vehicle {vid}: starting mission with {len(waypoints)} waypoints")
+            for wp in waypoints:
+                logger.info(
+                    f"Vehicle {vid}: flying to waypoint {wp.index} "
+                    f"({wp.latitude:.6f}, {wp.longitude:.6f}, {wp.altitude:.1f}m)"
+                )
+
+                # Send goto command
+                await self._send_command(FleetCommand(
+                    target_vehicle_id=vid,
+                    command="goto",
+                    params={
+                        "latitude_deg": wp.latitude,
+                        "longitude_deg": wp.longitude,
+                        "altitude_m": wp.altitude,
+                    }
+                ))
+
+                # Wait for arrival
+                arrived = False
+                telem_info = self._vehicle_telemetry.get(vid)
+                # Check if telemetry is populated / updated (in real mode, latitude is non-zero)
+                is_stub = (telem_info is None or telem_info.telemetry.position.latitude_deg == 0)
+
+                if is_stub:
+                    # In stub mode, simulate flight progress by sleeping
+                    await asyncio.sleep(2.0)
+                    logger.info(f"Vehicle {vid}: reached waypoint {wp.index} (simulated)")
+                else:
+                    # In real mode, monitor telemetry for arrival within 5m
+                    for _ in range(60):  # Timeout 120s per waypoint (60 * 2s)
+                        await asyncio.sleep(2.0)
+                        telem_info = self._vehicle_telemetry.get(vid)
+                        if telem_info and telem_info.telemetry:
+                            t = telem_info.telemetry
+                            dist = haversine_distance(
+                                t.position.latitude_deg,
+                                t.position.longitude_deg,
+                                wp.latitude,
+                                wp.longitude,
+                            )
+                            alt_diff = abs(t.position.relative_altitude_m - wp.altitude)
+                            if dist < 5.0 and alt_diff < 2.0:
+                                logger.info(f"Vehicle {vid}: reached waypoint {wp.index}")
+                                arrived = True
+                                break
+                    if not arrived:
+                        logger.warning(f"Vehicle {vid}: timeout waiting for waypoint {wp.index}")
+
+            logger.info(f"Vehicle {vid}: mission completed")
+
+        # Run all vehicle missions in parallel
+        await asyncio.gather(*(
+            run_vehicle_mission(vid, waypoints)
+            for vid, waypoints in waypoints_per_vehicle.items()
+        ))
 
     # ── Properties ───────────────────────────────────────────
 

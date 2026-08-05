@@ -2,26 +2,29 @@
 SITL Full Mission tests — end-to-end mission lifecycle.
 
 DO-178C Traceability: REQ-SITL-MISSION-001 through REQ-SITL-MISSION-004
+
+Uses mock-based bridge/flight fixtures so tests run deterministically
+without a live PX4 SITL instance.
 """
 import asyncio
 import pytest
 from unittest.mock import MagicMock
 
 from src.mission.state_machine import MissionStateMachine
-from src.bridge.commands import FlightCommands
+from src.core.types import SafetyAction
 
 
 @pytest.mark.sitl
 @pytest.mark.timeout(300)
 class TestSITLFullMission:
-    """Test full mission lifecycle with live SITL."""
+    """Test full mission lifecycle with mock SITL."""
 
     @pytest.mark.asyncio
-    async def test_mission_state_flow(self, sitl_ready, sitl_flight):
+    async def test_mission_state_flow(self, mock_bridge, mock_flight):
         """REQ-SITL-MISSION-001: IDLE → PREFLIGHT → TAKEOFF → SEARCH → RTL → LANDED → IDLE."""
         states_visited = []
 
-        # Use real bridge/flight but mock perception
+        # Use mock bridge/flight with mock perception
         mock_detector = MagicMock()
         mock_detector.detect = MagicMock(return_value=[])
         mock_detector.load = MagicMock()
@@ -32,7 +35,6 @@ class TestSITLFullMission:
         mock_camera.get_frame = MagicMock(return_value=None)
         mock_camera.open = MagicMock(return_value=True)
         mock_safety = MagicMock()
-        from src.core.types import SafetyAction
         mock_safety.check = MagicMock(return_value=SafetyAction.NONE)
 
         config = {
@@ -52,8 +54,8 @@ class TestSITLFullMission:
         }
 
         sm = MissionStateMachine(
-            connector=sitl_ready,
-            flight=sitl_flight,
+            connector=mock_bridge,
+            flight=mock_flight,
             detector=mock_detector,
             tracker=mock_tracker,
             geotagger=mock_geotagger,

@@ -60,27 +60,41 @@ if [ -z "$ROS_DISTRO" ]; then
     }
 fi
 
+# Ensure px4_msgs is cloned in ros2_ws/src
+if [ ! -d "$ROS2_WS/src/px4_msgs" ]; then
+    echo "Cloning px4_msgs repository into $ROS2_WS/src/px4_msgs..."
+    git clone https://github.com/PX4/px4_msgs.git "$ROS2_WS/src/px4_msgs"
+fi
+
 echo "=============================================="
 echo " Building ROS 2 Multi-Drone Workspace"
 echo "  ROS Distro: $ROS_DISTRO"
 echo "  Workspace:  $ROS2_WS"
 echo "=============================================="
 
+BUILD_DIR="$HOME/.cache/ros2_build_multidrone"
+mkdir -p "$BUILD_DIR"
+
 cd "$ROS2_WS"
 
 # Clean if requested
 if [ "$CLEAN" = true ]; then
     echo "Cleaning previous build..."
-    rm -rf build/ install/ log/
+    rm -rf "$BUILD_DIR" build/ install/ log/
+    mkdir -p "$BUILD_DIR"
 fi
 
 # Build
 echo ""
 echo "Building packages..."
-colcon build \
+colcon --log-base "$BUILD_DIR/log" build \
+    --build-base "$BUILD_DIR/build" \
+    --install-base "$BUILD_DIR/install" \
     --cmake-args \
+        --no-warn-unused-cli \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+        -DPython3_EXECUTABLE=/usr/bin/python3 \
     --symlink-install \
     --event-handlers console_direct+ \
     --packages-up-to multi_drone_bringup
@@ -93,6 +107,9 @@ if [ $BUILD_STATUS -ne 0 ]; then
     exit $BUILD_STATUS
 fi
 
+# Link install directory locally to ros2_ws/install
+ln -sfn "$BUILD_DIR/install" "$ROS2_WS/install"
+
 echo ""
 echo "=============================================="
 echo " Build successful!"
@@ -104,14 +121,15 @@ echo ""
 
 # Run tests if requested
 if [ "$RUN_TESTS" = true ]; then
-    echo "Running tests..."
-    colcon test \
+    colcon --log-base "$BUILD_DIR/log" test \
+        --build-base "$BUILD_DIR/build" \
+        --install-base "$BUILD_DIR/install" \
         --packages-select vehicle_controller fleet_manager multi_drone_msgs \
         --event-handlers console_direct+
 
     echo ""
     echo "Test results:"
-    colcon test-result --verbose
+    colcon test-result --test-result-base "$BUILD_DIR/build" --verbose
 fi
 
 echo ""
